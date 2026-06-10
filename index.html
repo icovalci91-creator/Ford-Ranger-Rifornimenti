@@ -1174,11 +1174,15 @@ async function extractRic(file,tipo){
 async function extractAz(file){
   const toast=showToast('Lettura ricarica...',false);
   try{const j=await callGemini(file,'Display wallbox o app. Piu sessioni possibili. JSON puro:\n{"sessioni":[{"data":"YYYY-MM-DD","kwh":""}]}\nData di oggi se non visibile: '+td()+'. Solo JSON.',600);
+    // DEBUG temporaneo - mostra risposta grezza
+    showToast('DEBUG: '+j.substring(0,80),false);
     const p=JSON.parse(j);
-    (p.sessioni||[]).forEach(s=>{if(s.kwh)ricAz.push({id:Date.now()+Math.random(),data:s.data||td(),kwh:s.kwh,note:''})});
+    const added=(p.sessioni||[]).filter(s=>s.kwh&&String(s.kwh).trim()!=='');
+    added.forEach(s=>{ricAz.push({id:Date.now()+Math.random(),data:s.data||td(),kwh:String(s.kwh),note:''})});
     ricAz.sort((a,b)=>b.data>a.data?1:-1);LS.set('rt_ricaz',ricAz);
-    removeToast(toast);showToast('✓ '+( p.sessioni||[]).length+' ricariche aggiunte!',true);
-    setTimeout(()=>render(),1500);
+    removeToast(toast);
+    if(added.length>0){showToast('✓ '+added.length+' ricariche aggiunte!',true);setTimeout(()=>render(),1500);}
+    else showToast('⚠️ Nessun kWh trovato nella foto',false,true);
   }catch(e){removeToast(toast);showToast('Errore AI: '+e.message,false,true)}
 }
 async function extractBoll(file,tipo){
