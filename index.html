@@ -26,9 +26,7 @@ html,body{height:100%;background:var(--bg);color:var(--tx);font-family:'Barlow',
 /* HEADER */
 .hdr{padding:60px 16px 12px;background:var(--bg2);border-bottom:2px solid var(--o);flex-shrink:0;display:flex;align-items:center;justify-content:space-between}
 
-.logo{font-family:'Barlow Condensed',sans-serif;font-weight:900;font-size:24px;letter-spacing:3px;text-transform:uppercase}
-.logo span{color:var(--o)}
-.logo-sub{font-size:9px;letter-spacing:3px;text-transform:uppercase;color:var(--mu);margin-top:1px}
+.logoimg{height:60px;width:auto;display:block;border-radius:8px}
 .pill{font-size:11px;background:var(--bg3);border:1px solid var(--bd);border-radius:20px;padding:5px 10px;color:var(--mu);cursor:pointer;white-space:nowrap;-webkit-tap-highlight-color:transparent}
 .pill.on{border-color:var(--g);color:var(--g)}
 
@@ -199,10 +197,7 @@ hr{border:none;border-top:1px solid var(--bd);margin:14px 0}
 <body>
 <div id="app">
   <div class="hdr">
-    <div>
-      <div class="logo">RANGER<span>TRACK</span></div>
-      <div class="logo-sub">Ford Ranger PHEV Wildtrak</div>
-    </div>
+    <img src="logo.png" alt="Ford Ranger PHEV Wildtrak" class="logoimg"/>
     <div style="display:flex;gap:8px">
       <div class="pill" id="ai-pill" onclick="openMo('mo-gemini')" title="AI Gemini">🤖</div>
       <div class="pill" onclick="openMo('mo-backup')" title="Backup">💾</div>
