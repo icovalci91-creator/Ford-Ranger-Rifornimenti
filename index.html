@@ -290,6 +290,17 @@ hr{border:none;border-top:1px solid var(--bd);margin:14px 0}
   </div>
 </div>
 
+<!-- MODAL confirm -->
+<div class="mov" id="mo-confirm" style="display:none">
+  <div class="mo">
+    <div class="motitle" id="mo-confirm-msg" style="margin-bottom:18px"></div>
+    <div class="brow">
+      <button class="btn bo" id="mo-confirm-ok">Conferma</button>
+      <button class="btn bgh" onclick="closeMo('mo-confirm')">Annulla</button>
+    </div>
+  </div>
+</div>
+
 <!-- MODAL backup -->
 <div class="mov" id="mo-backup" style="display:none" onclick="if(event.target===this)closeMo('mo-backup')">
   <div class="mo">
@@ -366,6 +377,11 @@ function openMo(id){
   document.getElementById(id).style.display='flex';
 }
 function closeMo(id){document.getElementById(id).style.display='none'}
+function askConfirm(msg,fn){
+  document.getElementById('mo-confirm-msg').textContent=msg;
+  document.getElementById('mo-confirm-ok').onclick=()=>{closeMo('mo-confirm');fn()};
+  document.getElementById('mo-confirm').style.display='flex';
+}
 function saveKwh(){
   costoKwh=document.getElementById('kwh-in').value.trim();
   LS.set('rt_kwh',costoKwh);closeMo('mo-kwh');render();
@@ -513,30 +529,31 @@ function rFinalSum(){
 // ── CICLO ACTIONS ─────────────────────────────────────────────────────────────
 function saveCruscotto(){
   const km=document.getElementById('f-km')?.value.trim();
-  if(!km){alert('Inserisci i KM percorsi');return}
+  if(!km){showToast('Inserisci i KM percorsi',false,true);return}
   cycle.cruscotto={km,kmel:document.getElementById('f-kmel')?.value.trim()||'0',data:document.getElementById('f-data')?.value||td()};
   LS.set('rt_cycle',cycle);render();
 }
 function saveScontrino(){
   const litri=document.getElementById('f-litri')?.value.trim(),prezzo=document.getElementById('f-prezzo')?.value.trim();
-  if(!litri||!prezzo){alert('Inserisci litri e prezzo');return}
+  if(!litri||!prezzo){showToast('Inserisci litri e prezzo',false,true);return}
   cycle.scontrino={litri,prezzo,staz:document.getElementById('f-staz')?.value.trim()};
   LS.set('rt_cycle',cycle);render();
 }
 function saveRicCasa(){
   const kwh=document.getElementById('f-kwc')?.value.trim();
-  if(!kwh){alert('Inserisci i kWh');return}
+  if(!kwh){showToast('Inserisci i kWh',false,true);return}
   cycle.ricCasa={kwh};LS.set('rt_cycle',cycle);render();
 }
 function saveRicLav(){
   const kwh=document.getElementById('f-kwl')?.value.trim();
-  if(!kwh){alert('Inserisci i kWh');return}
+  if(!kwh){showToast('Inserisci i kWh',false,true);return}
   cycle.ricLav={kwh};LS.set('rt_cycle',cycle);render();
 }
 function resetCycle(){
-  if(!confirm('Azzerare il ciclo corrente?'))return;
-  cycle={cruscotto:null,scontrino:null,ricCasa:null,ricLav:null};
-  LS.set('rt_cycle',cycle);render();
+  askConfirm('Azzerare il ciclo corrente?',()=>{
+    cycle={cruscotto:null,scontrino:null,ricCasa:null,ricLav:null};
+    LS.set('rt_cycle',cycle);render();
+  });
 }
 function saveFinal(){
   const c=cycle;
@@ -662,7 +679,7 @@ function rRimborso(){
       });
       h+='</div>';
     });
-    h+=`<button class="btn bgh" style="margin-top:4px" onclick="if(confirm('Svuotare il bimestre corrente?')){ricAz=ricAz.filter(r=>!${JSON.stringify(curMs)}.includes((r.data||'').substring(0,7)));LS.set('rt_ricaz',ricAz);render()}">🗑️ Svuota bimestre</button>`;
+    h+=`<button class="btn bgh" style="margin-top:4px" onclick="svuotaBim()">🗑️ Svuota bimestre</button>`;
   }
 
   // Archivio bimestri
@@ -674,7 +691,7 @@ function rRimborso(){
     const badge=pagato?`<span class="badge-pagato">✓ PAGATO ${fd(b.dataPag)}</span>`:`<span class="badge-attesa">⏳ DA PAGARE</span>`;
     h+=`<div class="bcard" style="border:1px solid ${bc}">
       <div class="bcard-hdr" onclick="toggleBimD(${i})">
-        <div><div style="font-family:'Barlow Condensed',sans-serif;font-size:18px;font-weight:900">${b.label}</div>
+        <div><div style="font-family:'Barlow Condensed',sans-serif;font-size:18px;font-weight:900">${es(b.label)}</div>
         <div style="margin-top:4px">${badge}</div></div>
         <div style="text-align:right">
           <div style="font-family:'Barlow Condensed',sans-serif;font-size:28px;font-weight:900;color:${pagato?'var(--g)':'var(--o)'}">€ ${Math.ceil(n(b.totImp))},00</div>
@@ -697,7 +714,7 @@ function rRimborso(){
         <div class="brow" style="margin-top:12px">
           <button class="btn bgh bsm" onclick="doPrint('rimborso',${i})">⬇️ PDF Rimborso</button>
           ${!pagato?`<button class="btn bg bsm" onclick="openPagMo(${i})">✓ Segna pagato</button>`:`<div class="brow"><button class="btn bgh bsm" onclick="doPrint('ricevuta',${i})">🧾 PDF Ricevuta</button><button class="btn bsm" style="border:1px solid var(--r);color:var(--r);background:transparent;padding:8px 14px;font-family:'Barlow Condensed',sans-serif;font-size:11px;font-weight:700;letter-spacing:2px;text-transform:uppercase;border-radius:5px;cursor:pointer" onclick="annullaPag(${i})">↩️ Annulla</button></div>`}
-          <button class="delbtn" onclick="if(confirm('Eliminare?')){bimArch.splice(${i},1);LS.set('rt_bimarch',bimArch);render()}">✕</button>
+          <button class="delbtn" onclick="delBim(${i})">✕</button>
         </div>
       </div>
     </div>`;
@@ -755,12 +772,24 @@ function archiviBim(oldK){
 // ── RICARICHE AZIENDA ─────────────────────────────────────────────────────────
 function saveRicManuale(){
   const kwh=document.getElementById('ric-kwh')?.value.trim();
-  if(!kwh){alert('Inserisci i kWh');return}
+  if(!kwh){showToast('Inserisci i kWh',false,true);return}
   ricAz.push({id:Date.now(),data:document.getElementById('ric-data')?.value||td(),kwh,note:document.getElementById('ric-note')?.value.trim()||''});
   ricAz.sort((a,b)=>b.data>a.data?1:-1);
   LS.set('rt_ricaz',ricAz);closeMo('mo-ric');render();
 }
 function delRic(id){ricAz=ricAz.filter(r=>r.id!==id);LS.set('rt_ricaz',ricAz);render()}
+function svuotaBim(){
+  askConfirm('Svuotare il bimestre corrente?',()=>{
+    const curMs=bimMonths(curBim());
+    ricAz=ricAz.filter(r=>!curMs.includes((r.data||'').substring(0,7)));
+    LS.set('rt_ricaz',ricAz);render();
+  });
+}
+function delBim(i){
+  askConfirm('Eliminare questo bimestre archiviato?',()=>{
+    bimArch.splice(i,1);LS.set('rt_bimarch',bimArch);render();
+  });
+}
 function openFotoAz(){
   const inp=document.getElementById('az-fi');
   inp.value='';
@@ -781,7 +810,7 @@ function openPagMo(idx){
 function salvaPag(){
   const idx=parseInt(document.getElementById('pag-idx').value);
   const data=document.getElementById('pag-data').value;
-  if(!data){alert('Inserisci la data');return}
+  if(!data){showToast('Inserisci la data',false,true);return}
   bimArch[idx].pagato=true;
   bimArch[idx].dataPag=data;
   bimArch[idx].notePag=document.getElementById('pag-note').value.trim();
@@ -790,10 +819,11 @@ function salvaPag(){
   setTimeout(()=>doPrint('ricevuta',idx),400);
 }
 function annullaPag(idx){
-  if(!confirm('Annullare il pagamento?'))return;
-  bimArch[idx].pagato=false;
-  delete bimArch[idx].dataPag;delete bimArch[idx].notePag;
-  LS.set('rt_bimarch',bimArch);render();
+  askConfirm('Annullare il pagamento?',()=>{
+    bimArch[idx].pagato=false;
+    delete bimArch[idx].dataPag;delete bimArch[idx].notePag;
+    LS.set('rt_bimarch',bimArch);render();
+  });
 }
 
 // ══════════════════════════════════════════════════════════════════════════════
@@ -858,8 +888,8 @@ function rStorico(){
         </div>
       </div>
       ${isDet?`<div class="hstats">
-        <div class="hstat"><div class="hstatl">KM percorsi</div><div class="hstatv">${hh.km||'—'}</div></div>
-        <div class="hstat"><div class="hstatl" style="color:var(--g)">KM elettrico</div><div class="hstatv" style="color:var(--g)">${hh.kmel||'—'}</div></div>
+        <div class="hstat"><div class="hstatl">KM percorsi</div><div class="hstatv">${es(hh.km)||'—'}</div></div>
+        <div class="hstat"><div class="hstatl" style="color:var(--g)">KM elettrico</div><div class="hstatv" style="color:var(--g)">${es(hh.kmel)||'—'}</div></div>
         <div class="hstat"><div class="hstatl" style="color:var(--o)">KM termico</div><div class="hstatv" style="color:var(--o)">${hh.km&&hh.kmel?Math.max(0,n(hh.km)-n(hh.kmel)).toFixed(1):'—'}</div></div>
         ${hh.km&&n(hh.litri)>0&&n(hh.km)>n(hh.kmel)?`<div class="hstat"><div class="hstatl" style="color:var(--o)">km/L term.</div><div class="hstatv" style="color:var(--o)">${r2((n(hh.km)-n(hh.kmel))/n(hh.litri)).toFixed(1)}</div></div>`:''}
         ${hh.km&&n(hh.litri)>0?`<div class="hstat"><div class="hstatl">km/L comb.</div><div class="hstatv">${r2(n(hh.km)/n(hh.litri)).toFixed(1)}</div></div>`:''}
@@ -889,7 +919,7 @@ function rStorico(){
 
 function toggleOpen(id){sOpen[id]=!sOpen[id];if(sOpen[id])sDetail[id]=false;render()}
 function toggleDet(id){sDetail[id]=!sDetail[id];if(sDetail[id])sOpen[id]=false;render()}
-function delHist(id){if(!confirm('Eliminare?'))return;hist=hist.filter(h=>h.id!==id);LS.set('rt_hist',hist);render()}
+function delHist(id){askConfirm('Eliminare questo ciclo?',()=>{hist=hist.filter(h=>h.id!==id);LS.set('rt_hist',hist);render()})}
 function saveStorico(id){
   const idx=hist.findIndex(h=>h.id===id);if(idx===-1)return;
   const h=hist[idx];
@@ -917,7 +947,7 @@ function saveNRif(){
   const data=document.getElementById('nr-data')?.value;
   const litri=document.getElementById('nr-litri')?.value.trim();
   const prezzo=document.getElementById('nr-prezzo')?.value.trim();
-  if(!data||!litri||!prezzo){alert('Inserisci almeno data, litri e €/litro');return}
+  if(!data||!litri||!prezzo){showToast('Inserisci almeno data, litri e €/litro',false,true);return}
   const km=document.getElementById('nr-km')?.value.trim();
   const kmel=n(document.getElementById('nr-kmel')?.value);
   const kwhCasa=n(document.getElementById('nr-kwc')?.value);
@@ -932,7 +962,7 @@ function saveNRif(){
   });
   hist.sort((a,b)=>a.data<b.data?1:-1);
   LS.set('rt_hist',hist);closeMo('mo-nrif');sw('storico');
-  alert('Rifornimento aggiunto!');
+  showToast('✓ Rifornimento aggiunto!',true);
 }
 
 // ══════════════════════════════════════════════════════════════════════════════
@@ -1020,7 +1050,7 @@ function saveBollAz(){
   const arch=LS.get('rt_boll_arch',[]);
   arch.unshift({tipo:'aziendale',periodo:bollRef.periodo,coeff,data:td()});
   LS.set('rt_boll_arch',arch);
-  render();alert('Bolletta aziendale salvata! Coeff: € '+coeff.toFixed(5)+'/kWh');
+  render();showToast('✓ Bolletta salvata! Coeff: € '+coeff.toFixed(5)+'/kWh',true);
 }
 function saveBollCasa(){
   const totale=n(document.getElementById('bc-tot')?.value);
@@ -1028,7 +1058,7 @@ function saveBollCasa(){
   const manuale=n(document.getElementById('bc-coeff')?.value);
   let coeff=manuale;
   if(!coeff&&totale>0&&kwhtot>0)coeff=r2(totale/kwhtot*10000)/10000;
-  if(!coeff){alert('Inserisci €/kWh o totale+kWh');return}
+  if(!coeff){showToast('Inserisci €/kWh o totale+kWh',false,true);return}
   const periodo=document.getElementById('bc-per')?.value.trim();
   LS.set('rt_kwh_casa',String(coeff));
   LS.set('rt_boll_casa',{periodo,totaleFattura:document.getElementById('bc-tot')?.value.trim(),consumoTot:document.getElementById('bc-kwh')?.value.trim(),costoKwh:coeff});
@@ -1047,7 +1077,7 @@ function saveBollCasa(){
   const arch=LS.get('rt_boll_arch',[]);
   arch.unshift({tipo:'casa',periodo,coeff,data:td()});
   LS.set('rt_boll_arch',arch);
-  render();alert('Bolletta casa salvata! € '+coeff.toFixed(4)+'/kWh\n'+count+' cicli aggiornati.');
+  render();showToast('✓ Bolletta casa salvata! € '+coeff.toFixed(4)+'/kWh · '+count+' cicli aggiornati',true);
 }
 
 // ══════════════════════════════════════════════════════════════════════════════
@@ -1186,15 +1216,15 @@ function doPrint(tipo,bimIdx){
   const rounded=Math.ceil(totImp);
   document.getElementById('parea').innerHTML=`<div class="pp">
     <div class="ph"><div class="pht">${isPag?'Ricevuta di pagamento rimborso energia':'Riepilogo rimborso energia'}</div>
-    <div class="phs">Ricariche mezzo aziendale - ${periodo}</div>
+    <div class="phs">Ricariche mezzo aziendale - ${es(periodo)}</div>
     <div style="font-size:8pt;color:#888;margin-top:4px">Generato il ${new Date().toLocaleDateString('it-IT')}</div></div>
     ${isPag?`<div class="pbox pg"><div style="font-weight:bold;color:#166534">PAGAMENTO AVVENUTO</div>
       <div>Data: <strong>${fd(bPag.dataPag)}</strong></div>
       ${bPag.notePag?`<div>Note: ${es(bPag.notePag)}</div>`:''}</div>`:''}
     <div class="psec"><div class="psect">Bolletta di riferimento</div>
       <table class="ptbl"><tbody>
-        <tr><td><strong>Bolletta</strong></td><td>${bRef?'N. '+(bRef.numero||'—')+' - '+(bRef.periodo||periodo):'—'}</td></tr>
-        <tr><td><strong>Consumo totale</strong></td><td>${bRef?(bRef.consumoTot+' kWh'):'—'}</td></tr>
+        <tr><td><strong>Bolletta</strong></td><td>${bRef?'N. '+es(bRef.numero||'—')+' - '+es(bRef.periodo||periodo):'—'}</td></tr>
+        <tr><td><strong>Consumo totale</strong></td><td>${bRef?(es(bRef.consumoTot)+' kWh'):'—'}</td></tr>
         <tr><td><strong>Totale bolletta</strong></td><td>${bRef?'EUR '+parseFloat(bRef.totaleFattura||0).toFixed(2):'—'}</td></tr>
         <tr><td><strong>Sconto soci</strong></td><td>${bRef?'EUR -'+parseFloat(bRef.scontoSoci||0).toFixed(2):'—'}</td></tr>
         <tr><td><strong>Coefficiente</strong></td><td>EUR ${cKwh.toFixed(5)} per kWh</td></tr>
@@ -1212,7 +1242,7 @@ function doPrint(tipo,bimIdx){
     </div>
     ${bRef&&bRef.nota?`<div style="font-size:8pt;color:#666;margin:8px 0;font-style:italic">Nota: ${es(bRef.nota)}</div>`:''}
     <div class="psig">Firma per presa visione ____________________________</div>
-    <div class="pfoot"><span>RangerTrack</span><span>${periodo}</span></div>
+    <div class="pfoot"><span>RangerTrack</span><span>${es(periodo)}</span></div>
   </div>`;
   setTimeout(()=>{window.print();setTimeout(()=>{document.getElementById('parea').innerHTML=''},1500)},300);
 }
@@ -1301,14 +1331,20 @@ function attachEv(){
 // INIT
 // ══════════════════════════════════════════════════════════════════════════════
 
-// Preload bimestri storici se archivio vuoto
-(function(){
+// Preload bimestri storici se archivio vuoto (dati in preload_bimestri.json)
+(async function(){
   const existing = LS.get('rt_bimarch', []);
-  if(existing.length === 0) {
-    const preload = [{"key": "2026-B3", "label": "Mag-Giu 2026", "pagato": false, "archiviato": "2026-06-01", "costoKwh": "0.12673", "totKwh": 165.1, "totImp": 20.92, "bolletta": null, "ricariche": [{"id": 1748700005, "data": "2026-05-05", "kwh": "5.9", "note": ""}, {"id": 1748700006, "data": "2026-05-06", "kwh": "13.2", "note": ""}, {"id": 1748700007, "data": "2026-05-07", "kwh": "11.0", "note": ""}, {"id": 1748700008, "data": "2026-05-08", "kwh": "9.9", "note": ""}, {"id": 1748700011, "data": "2026-05-11", "kwh": "2.5", "note": ""}, {"id": 1748700012, "data": "2026-05-12", "kwh": "2.0", "note": "Lavoro"}, {"id": 1748700013, "data": "2026-05-13", "kwh": "10.7", "note": ""}, {"id": 1748700014, "data": "2026-05-14", "kwh": "10.6", "note": ""}, {"id": 1748700015, "data": "2026-05-15", "kwh": "6.9", "note": ""}, {"id": 1748700016, "data": "2026-05-15", "kwh": "12.9", "note": ""}, {"id": 1748700018, "data": "2026-05-18", "kwh": "5.4", "note": ""}, {"id": 1748700019, "data": "2026-05-18", "kwh": "7.6", "note": ""}, {"id": 1748700020, "data": "2026-05-19", "kwh": "4.5", "note": ""}, {"id": 1748700021, "data": "2026-05-20", "kwh": "10.7", "note": ""}, {"id": 1748700022, "data": "2026-05-22", "kwh": "7.2", "note": ""}, {"id": 1748700025, "data": "2026-05-25", "kwh": "10.0", "note": ""}, {"id": 1748700027, "data": "2026-05-27", "kwh": "9.1", "note": ""}, {"id": 1748700028, "data": "2026-05-28", "kwh": "6.6", "note": ""}, {"id": 1748700029, "data": "2026-05-29", "kwh": "5.2", "note": ""}, {"id": 1748700030, "data": "2026-05-29", "kwh": "13.2", "note": ""}]}, {"key": "2026-B2", "label": "Mar-Apr 2026", "pagato": false, "archiviato": "2026-05-01", "costoKwh": "0.12673", "totKwh": 232.3, "totImp": 29.44, "bolletta": {"numero": "844/PR", "data": "2026-05-12", "consumoTot": "1672", "totaleFattura": "444.00", "scontoSoci": "78.95", "periodo": "marzo-aprile 2026", "nota": "Ricarica 30/04/2026 10,1 kWh Via Sempione inclusa tra le ricariche lavoro.", "coefficiente": 0.12673}, "ricariche": [{"id": 1741100001, "data": "2026-03-03", "kwh": "9.4", "note": ""}, {"id": 1741100002, "data": "2026-03-04", "kwh": "11.3", "note": ""}, {"id": 1741100003, "data": "2026-03-05", "kwh": "11.5", "note": ""}, {"id": 1741100004, "data": "2026-03-06", "kwh": "10.7", "note": ""}, {"id": 1741100005, "data": "2026-03-12", "kwh": "10.1", "note": ""}, {"id": 1741100006, "data": "2026-03-14", "kwh": "7.0", "note": ""}, {"id": 1741100007, "data": "2026-03-24", "kwh": "2.8", "note": ""}, {"id": 1741100008, "data": "2026-03-24", "kwh": "6.8", "note": ""}, {"id": 1741100009, "data": "2026-03-25", "kwh": "10.1", "note": ""}, {"id": 1741100010, "data": "2026-03-27", "kwh": "8.2", "note": ""}, {"id": 1741100011, "data": "2026-03-31", "kwh": "10.1", "note": ""}, {"id": 1741100012, "data": "2026-03-31", "kwh": "2.5", "note": ""}, {"id": 1741100013, "data": "2026-04-01", "kwh": "5.6", "note": ""}, {"id": 1741100014, "data": "2026-04-02", "kwh": "2.6", "note": ""}, {"id": 1741100015, "data": "2026-04-02", "kwh": "10.1", "note": ""}, {"id": 1741100016, "data": "2026-04-04", "kwh": "7.5", "note": ""}, {"id": 1741100017, "data": "2026-04-09", "kwh": "9.2", "note": ""}, {"id": 1741100018, "data": "2026-04-10", "kwh": "3.8", "note": ""}, {"id": 1741100019, "data": "2026-04-10", "kwh": "4.9", "note": ""}, {"id": 1741100020, "data": "2026-04-10", "kwh": "2.7", "note": ""}, {"id": 1741100021, "data": "2026-04-14", "kwh": "8.9", "note": ""}, {"id": 1741100022, "data": "2026-04-16", "kwh": "10.3", "note": ""}, {"id": 1741100023, "data": "2026-04-17", "kwh": "10.3", "note": ""}, {"id": 1741100024, "data": "2026-04-18", "kwh": "5.2", "note": ""}, {"id": 1741100025, "data": "2026-04-20", "kwh": "10.2", "note": ""}, {"id": 1741100026, "data": "2026-04-22", "kwh": "10.2", "note": ""}, {"id": 1741100027, "data": "2026-04-25", "kwh": "7.9", "note": ""}, {"id": 1741100028, "data": "2026-04-26", "kwh": "2.4", "note": ""}, {"id": 1741100029, "data": "2026-04-27", "kwh": "9.9", "note": ""}, {"id": 1741100030, "data": "2026-04-30", "kwh": "10.1", "note": "Via Sempione"}]}, {"key": "2026-B1", "label": "Gen-Feb 2026", "pagato": false, "archiviato": "2026-03-01", "costoKwh": "0.12673", "totKwh": 25.6, "totImp": 3.24, "bolletta": null, "ricariche": [{"id": 1738100001, "data": "2026-02-17", "kwh": "3.3", "note": ""}, {"id": 1738100002, "data": "2026-02-20", "kwh": "1.3", "note": ""}, {"id": 1738100003, "data": "2026-02-20", "kwh": "10.7", "note": ""}, {"id": 1738100004, "data": "2026-02-28", "kwh": "10.3", "note": ""}]}];
-    bimArch = preload;
-    LS.set('rt_bimarch', bimArch);
-  }
+  if(existing.length !== 0) return;
+  try{
+    const r = await fetch('preload_bimestri.json');
+    if(!r.ok) return;
+    const preload = await r.json();
+    if(Array.isArray(preload) && preload.length){
+      bimArch = preload;
+      LS.set('rt_bimarch', bimArch);
+      if(tab==='rimborso') render();
+    }
+  }catch{}
 })();
 
 sw('ciclo');
