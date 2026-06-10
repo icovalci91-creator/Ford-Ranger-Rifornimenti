@@ -203,7 +203,10 @@ hr{border:none;border-top:1px solid var(--bd);margin:14px 0}
       <div class="logo">RANGER<span>TRACK</span></div>
       <div class="logo-sub">Ford Ranger PHEV Wildtrak</div>
     </div>
-    <div class="pill" onclick="openMo('mo-backup')" title="Backup">💾</div>
+    <div style="display:flex;gap:8px">
+      <div class="pill" id="ai-pill" onclick="openMo('mo-gemini')" title="AI Gemini">🤖</div>
+      <div class="pill" onclick="openMo('mo-backup')" title="Backup">💾</div>
+    </div>
   </div>
   <div class="tabs">
     <button class="tab" id="tb-ciclo"    onclick="sw('ciclo')">🔄 Ciclo</button>
@@ -290,6 +293,18 @@ hr{border:none;border-top:1px solid var(--bd);margin:14px 0}
   </div>
 </div>
 
+<!-- MODAL Gemini key -->
+<div class="mov" id="mo-gemini" style="display:none" onclick="if(event.target===this)closeMo('mo-gemini')">
+  <div class="mo">
+    <button class="mox" onclick="closeMo('mo-gemini')">✕</button>
+    <div class="motitle">🤖 Chiave API Gemini</div>
+    <p class="info">Gratuita su <strong>aistudio.google.com</strong> → Get API key. Salvata solo sul tuo dispositivo.</p>
+    <div class="fl" style="margin-bottom:14px"><label>API Key</label><input type="text" id="gemini-in" placeholder="AIza..." autocomplete="off"/></div>
+    <button class="btn bo" onclick="saveGeminiKey()">Salva</button>
+    <div id="gemini-del-row"></div>
+  </div>
+</div>
+
 <!-- MODAL confirm -->
 <div class="mov" id="mo-confirm" style="display:none">
   <div class="mo">
@@ -323,6 +338,7 @@ const LS={
 // ── STATE ────────────────────────────────────────────────────────────────────
 let tab='ciclo';
 let costoKwh=LS.get('rt_kwh','');
+let geminiKey=LS.get('rt_gemini_key','');
 let hist=LS.get('rt_hist',[]);
 let ricAz=LS.get('rt_ricaz',[]);
 let bollRef=LS.get('rt_boll',null);
@@ -330,7 +346,7 @@ let bimArch=LS.get('rt_bimarch',[]);
 let cycle=LS.get('rt_cycle',{cruscotto:null,scontrino:null,ricCasa:null,ricLav:null});
 let sOpen={}, sDetail={};
 
-function saveAll(){LS.set('rt_hist',hist);LS.set('rt_ricaz',ricAz);LS.set('rt_boll',bollRef);LS.set('rt_bimarch',bimArch);LS.set('rt_cycle',cycle);LS.set('rt_kwh',costoKwh)}
+function saveAll(){LS.set('rt_hist',hist);LS.set('rt_ricaz',ricAz);LS.set('rt_boll',bollRef);LS.set('rt_bimarch',bimArch);LS.set('rt_cycle',cycle);LS.set('rt_kwh',costoKwh);LS.set('rt_gemini_key',geminiKey)}
 
 // ── HELPERS ──────────────────────────────────────────────────────────────────
 function n(v){
@@ -367,6 +383,11 @@ function curBim(){return bimKey(td())}
 // ── MODALS ───────────────────────────────────────────────────────────────────
 function openMo(id){
   if(id==='mo-backup')fillBkSum();
+  if(id==='mo-gemini'){
+    const e=document.getElementById('gemini-in');if(e)e.value=geminiKey;
+    const dr=document.getElementById('gemini-del-row');
+    if(dr)dr.innerHTML=geminiKey?`<button class="btn bgh" style="margin-top:8px" onclick="removeGeminiKey()">🗑️ Rimuovi chiave</button>`:'';
+  }
   if(id==='mo-ric'){const e=document.getElementById('ric-data');if(e&&!e.value)e.value=td()}
   if(id==='mo-kwh'){const e=document.getElementById('kwh-in');if(e)e.value=costoKwh}
   if(id==='mo-nrif'){
@@ -385,6 +406,24 @@ function askConfirm(msg,fn){
 function saveKwh(){
   costoKwh=document.getElementById('kwh-in').value.trim();
   LS.set('rt_kwh',costoKwh);closeMo('mo-kwh');render();
+}
+function saveGeminiKey(){
+  geminiKey=document.getElementById('gemini-in').value.trim();
+  LS.set('rt_gemini_key',geminiKey);
+  closeMo('mo-gemini');
+  updateAiPill();
+  showToast(geminiKey?'✓ Chiave Gemini salvata':'Chiave rimossa',true);
+}
+function updateAiPill(){
+  const p=document.getElementById('ai-pill');
+  if(!p)return;
+  p.className='pill'+(geminiKey?' on':'');
+  p.title=geminiKey?'AI Gemini attivo':'Imposta chiave Gemini';
+}
+function removeGeminiKey(){
+  geminiKey='';LS.set('rt_gemini_key','');
+  closeMo('mo-gemini');updateAiPill();
+  showToast('Chiave rimossa',true);
 }
 
 // ── TAB ──────────────────────────────────────────────────────────────────────
@@ -1086,21 +1125,23 @@ function saveBollCasa(){
 async function toB64(file){
   return new Promise((res,rej)=>{const r=new FileReader();r.onload=()=>res(r.result.split(',')[1]);r.onerror=rej;r.readAsDataURL(file)});
 }
-async function callClaude(file,prompt,maxTok=400){
+async function callGemini(file,prompt,maxTok=400){
+  if(!geminiKey){showToast('⚠️ Imposta la chiave Gemini in Bolletta',false,true);throw new Error('no key')}
   const b64=await toB64(file);
-  const isImg=file.type.startsWith('image/');
-  const block=isImg?{type:'image',source:{type:'base64',media_type:file.type||'image/jpeg',data:b64}}:{type:'document',source:{type:'base64',media_type:'application/pdf',data:b64}};
-  const res=await fetch('https://api.anthropic.com/v1/messages',{method:'POST',headers:{'Content-Type':'application/json'},
-    body:JSON.stringify({model:'claude-sonnet-4-20250514',max_tokens:maxTok,messages:[{role:'user',content:[block,{type:'text',text:prompt}]}]})
+  const mime=file.type||'image/jpeg';
+  const res=await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${geminiKey}`,{
+    method:'POST',headers:{'Content-Type':'application/json'},
+    body:JSON.stringify({contents:[{parts:[{inline_data:{mime_type:mime,data:b64}},{text:prompt}]}],generationConfig:{maxOutputTokens:maxTok}})
   });
   const data=await res.json();
-  return data.content?.map(b=>b.text||'').join('').trim().replace(/```json|```/g,'');
+  if(data.error)throw new Error(data.error.message);
+  return(data.candidates?.[0]?.content?.parts?.[0]?.text||'').trim().replace(/```json|```/g,'');
 }
 function showPrev(file,id){const el=document.getElementById(id);if(!el)return;el.innerHTML=file.type.startsWith('image/')?`<img src="${URL.createObjectURL(file)}" class="uprev"/>`:`<div style="color:var(--g);font-size:13px">📄 ${es(file.name)}</div>`}
 
 async function extractCruscotto(file){
   showPrev(file,'pv-cr');const l=document.getElementById('ld-cr');if(l)l.style.display='flex';
-  try{const j=await callClaude(file,'Cruscotto Ford Ranger PHEV. JSON puro:\n{"kmPercorsi":"","kmElettrico":""}\nkmPercorsi=km percorsi in questo ciclo. kmElettrico=km in modalita elettrica. Solo JSON.');
+  try{const j=await callGemini(file,'Cruscotto Ford Ranger PHEV. JSON puro:\n{"kmPercorsi":"","kmElettrico":""}\nkmPercorsi=km percorsi in questo ciclo. kmElettrico=km in modalita elettrica. Solo JSON.');
     const p=JSON.parse(j);
     if(p.kmPercorsi){const e=document.getElementById('f-km');if(e)e.value=p.kmPercorsi}
     if(p.kmElettrico){const e=document.getElementById('f-kmel');if(e)e.value=p.kmElettrico}
@@ -1109,7 +1150,7 @@ async function extractCruscotto(file){
 }
 async function extractScontrino(file){
   showPrev(file,'pv-sc');const l=document.getElementById('ld-sc');if(l)l.style.display='flex';
-  try{const j=await callClaude(file,'Scontrino rifornimento. JSON puro:\n{"litri":"","prezzoLitro":"","stazione":""}\nSolo JSON.');
+  try{const j=await callGemini(file,'Scontrino rifornimento. JSON puro:\n{"litri":"","prezzoLitro":"","stazione":""}\nSolo JSON.');
     const p=JSON.parse(j);
     if(p.litri){const e=document.getElementById('f-litri');if(e)e.value=p.litri}
     if(p.prezzoLitro){const e=document.getElementById('f-prezzo');if(e)e.value=p.prezzoLitro}
@@ -1120,7 +1161,7 @@ async function extractScontrino(file){
 async function extractRic(file,tipo){
   const pid=tipo==='casa'?'pv-ca':'pv-la',lid=tipo==='casa'?'ld-ca':'ld-la',iid=tipo==='casa'?'f-kwc':'f-kwl';
   showPrev(file,pid);const l=document.getElementById(lid);if(l)l.style.display='flex';
-  try{const j=await callClaude(file,'Display wallbox o app ricarica. JSON puro:\n{"kwhTotali":""}\nkwhTotali=somma totale kWh. Solo JSON.');
+  try{const j=await callGemini(file,'Display wallbox o app ricarica. JSON puro:\n{"kwhTotali":""}\nkwhTotali=somma totale kWh. Solo JSON.');
     const p=JSON.parse(j);
     if(p.kwhTotali){const e=document.getElementById(iid);if(e)e.value=p.kwhTotali}
   }catch(e){console.error(e)}
@@ -1128,7 +1169,7 @@ async function extractRic(file,tipo){
 }
 async function extractAz(file){
   const toast=showToast('Lettura ricarica...',false);
-  try{const j=await callClaude(file,'Display wallbox o app. Piu sessioni possibili. JSON puro:\n{"sessioni":[{"data":"YYYY-MM-DD","kwh":""}]}\nData di oggi se non visibile: '+td()+'. Solo JSON.',600);
+  try{const j=await callGemini(file,'Display wallbox o app. Piu sessioni possibili. JSON puro:\n{"sessioni":[{"data":"YYYY-MM-DD","kwh":""}]}\nData di oggi se non visibile: '+td()+'. Solo JSON.',600);
     const p=JSON.parse(j);
     (p.sessioni||[]).forEach(s=>{if(s.kwh)ricAz.push({id:Date.now()+Math.random(),data:s.data||td(),kwh:s.kwh,note:''})});
     ricAz.sort((a,b)=>b.data>a.data?1:-1);LS.set('rt_ricaz',ricAz);
@@ -1145,7 +1186,7 @@ async function extractBoll(file,tipo){
     const prompt=isCasa
       ?'Bolletta elettrica domestica. JSON puro:\n{"costoKwh":"","totaleKwh":"","totaleFattura":"","periodo":"","fornitore":""}\nSolo JSON.'
       :'Bolletta elettrica aziendale. JSON puro:\n{"costoKwh":"","totaleKwh":"","totaleFattura":"","scontoSoci":"","periodo":"","fornitore":"","numeroBolletta":""}\ncostoKwh=(totaleFattura-scontoSoci)/totaleKwh. Solo JSON.';
-    const j=await callClaude(file,prompt,500);
+    const j=await callGemini(file,prompt,500);
     const p=JSON.parse(j);
     if(isCasa){
       if(p.costoKwh){const e=document.getElementById('bc-coeff');if(e)e.value=n(p.costoKwh).toFixed(4)}
@@ -1348,6 +1389,7 @@ function attachEv(){
 })();
 
 sw('ciclo');
+updateAiPill();
 
 // iOS install hint
 const isIOS=/iphone|ipad|ipod/i.test(navigator.userAgent);
