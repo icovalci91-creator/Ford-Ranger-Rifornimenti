@@ -1129,7 +1129,7 @@ async function callGemini(file,prompt,maxTok=400){
   if(!geminiKey){showToast('⚠️ Imposta la chiave Gemini (🤖)',false,true);throw new Error('no key')}
   const b64=await toB64(file);
   const mime=file.type||'image/jpeg';
-  const res=await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash-lite:generateContent?key=${geminiKey}`,{
+  const res=await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${geminiKey}`,{
     method:'POST',headers:{'Content-Type':'application/json'},
     body:JSON.stringify({contents:[{parts:[{inline_data:{mime_type:mime,data:b64}},{text:prompt}]}],generationConfig:{maxOutputTokens:maxTok}})
   });
