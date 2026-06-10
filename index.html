@@ -831,9 +831,15 @@ function delBim(i){
 }
 function openFotoAz(){
   const inp=document.getElementById('az-fi');
-  inp.value='';
-  inp.onchange=e=>{if(e.target.files[0])extractAz(e.target.files[0])};
-  inp.click();
+  // ricrea l'input per forzare il trigger su tutti i browser
+  const clone=inp.cloneNode(true);
+  inp.parentNode.replaceChild(clone,inp);
+  clone.addEventListener('change',e=>{
+    const f=e.target.files?.[0];
+    if(f)extractAz(f);
+    else showToast('Nessun file selezionato',false,true);
+  });
+  clone.click();
 }
 
 // ── PAGAMENTO ─────────────────────────────────────────────────────────────────
