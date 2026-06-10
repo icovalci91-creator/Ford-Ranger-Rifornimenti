@@ -1135,20 +1135,32 @@ async function callGemini(file,prompt,maxTok=400){
   if(!geminiKey){showToast('⚠️ Imposta la chiave Gemini (🤖)',false,true);throw new Error('no key')}
   const b64=await toB64(file);
   const mime=file.type||'image/jpeg';
-  const res=await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${geminiKey}`,{
-    method:'POST',headers:{'Content-Type':'application/json'},
-    body:JSON.stringify({contents:[{parts:[{inline_data:{mime_type:mime,data:b64}},{text:prompt}]}],generationConfig:{maxOutputTokens:maxTok,thinkingConfig:{thinkingBudget:0}}})
-  });
-  const data=await res.json();
-  if(data.error)throw new Error(data.error.message+' ('+data.error.code+')');
-  const block=data.promptFeedback?.blockReason;
-  if(block)throw new Error('Bloccato: '+block);
-  const cand=data.candidates?.[0];
-  const raw=(cand?.content?.parts||[]).map(p=>p.text||'').join('').trim();
-  if(!raw)throw new Error('Risposta vuota ('+(cand?.finishReason||'?')+')');
-  // estrai solo il blocco JSON dalla risposta (Gemini a volte aggiunge testo)
-  const match=raw.match(/\{[\s\S]*\}/);
-  return match?match[0]:raw.replace(/```json|```/g,'');
+  // prova 2.5-flash, se sovraccarico (503) o quota (429) ripiega su 2.0-flash
+  const models=['gemini-2.5-flash','gemini-2.0-flash'];
+  let lastErr=new Error('AI non disponibile');
+  for(const m of models){
+    const gen={maxOutputTokens:maxTok};
+    if(m.startsWith('gemini-2.5'))gen.thinkingConfig={thinkingBudget:0};
+    const res=await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${m}:generateContent?key=${geminiKey}`,{
+      method:'POST',headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({contents:[{parts:[{inline_data:{mime_type:mime,data:b64}},{text:prompt}]}],generationConfig:gen})
+    });
+    const data=await res.json();
+    if(data.error){
+      lastErr=new Error(data.error.message+' ('+data.error.code+')');
+      if(data.error.code===503||data.error.code===429)continue;
+      throw lastErr;
+    }
+    const block=data.promptFeedback?.blockReason;
+    if(block)throw new Error('Bloccato: '+block);
+    const cand=data.candidates?.[0];
+    const raw=(cand?.content?.parts||[]).map(p=>p.text||'').join('').trim();
+    if(!raw){lastErr=new Error('Risposta vuota ('+(cand?.finishReason||'?')+')');continue}
+    // estrai solo il blocco JSON dalla risposta (Gemini a volte aggiunge testo)
+    const match=raw.match(/\{[\s\S]*\}/);
+    return match?match[0]:raw.replace(/```json|```/g,'');
+  }
+  throw lastErr;
 }
 function showPrev(file,id){const el=document.getElementById(id);if(!el)return;el.innerHTML=file.type.startsWith('image/')?`<img src="${URL.createObjectURL(file)}" class="uprev"/>`:`<div style="color:var(--g);font-size:13px">📄 ${es(file.name)}</div>`}
 
