@@ -1143,9 +1143,11 @@ async function callGemini(file,prompt,maxTok=400){
   if(data.error)throw new Error(data.error.message+' ('+data.error.code+')');
   const block=data.promptFeedback?.blockReason;
   if(block)throw new Error('Bloccato: '+block);
-  const text=(data.candidates?.[0]?.content?.parts?.[0]?.text||'').trim().replace(/```json|```/g,'');
-  if(!text)throw new Error('Risposta vuota dal modello');
-  return text;
+  const raw=(data.candidates?.[0]?.content?.parts?.[0]?.text||'').trim();
+  if(!raw)throw new Error('Risposta vuota dal modello');
+  // estrai solo il blocco JSON dalla risposta (Gemini a volte aggiunge testo)
+  const match=raw.match(/\{[\s\S]*\}/);
+  return match?match[0]:raw.replace(/```json|```/g,'');
 }
 function showPrev(file,id){const el=document.getElementById(id);if(!el)return;el.innerHTML=file.type.startsWith('image/')?`<img src="${URL.createObjectURL(file)}" class="uprev"/>`:`<div style="color:var(--g);font-size:13px">📄 ${es(file.name)}</div>`}
 
@@ -1180,8 +1182,8 @@ async function extractRic(file,tipo){
 async function extractAz(file){
   const toast=showToast('Lettura ricarica...',false);
   try{const j=await callGemini(file,'Display wallbox o app. Piu sessioni possibili. JSON puro:\n{"sessioni":[{"data":"YYYY-MM-DD","kwh":""}]}\nData di oggi se non visibile: '+td()+'. Solo JSON.',600);
-    // DEBUG temporaneo - mostra risposta grezza
-    showToast('DEBUG: '+j.substring(0,80),false);
+    // DEBUG temporaneo - mostra risposta nel titolo
+    document.title='DBG:'+j.substring(0,60);
     const p=JSON.parse(j);
     const added=(p.sessioni||[]).filter(s=>s.kwh&&String(s.kwh).trim()!=='');
     added.forEach(s=>{ricAz.push({id:Date.now()+Math.random(),data:s.data||td(),kwh:String(s.kwh),note:''})});
