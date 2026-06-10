@@ -1195,8 +1195,6 @@ async function extractRic(file,tipo){
 async function extractAz(file){
   const toast=showToast('Lettura ricarica...',false);
   try{const j=await callGemini(file,'Display wallbox o app. Piu sessioni possibili. JSON puro:\n{"sessioni":[{"data":"YYYY-MM-DD","kwh":""}]}\nData di oggi se non visibile: '+td()+'. Solo JSON.',600);
-    // DEBUG temporaneo - mostra risposta nel titolo
-    document.title='DBG:'+j.substring(0,60);
     const p=JSON.parse(j);
     const added=(p.sessioni||[]).filter(s=>s.kwh&&String(s.kwh).trim()!=='');
     added.forEach(s=>{ricAz.push({id:Date.now()+Math.random(),data:s.data||td(),kwh:String(s.kwh),note:''})});
