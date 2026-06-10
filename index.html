@@ -1145,7 +1145,7 @@ async function extractCruscotto(file){
     const p=JSON.parse(j);
     if(p.kmPercorsi){const e=document.getElementById('f-km');if(e)e.value=p.kmPercorsi}
     if(p.kmElettrico){const e=document.getElementById('f-kmel');if(e)e.value=p.kmElettrico}
-  }catch(e){console.error(e)}
+  }catch(e){if(e.message!=='no key')showToast('Errore AI: '+e.message,false,true)}
   if(l)l.style.display='none';
 }
 async function extractScontrino(file){
@@ -1155,7 +1155,7 @@ async function extractScontrino(file){
     if(p.litri){const e=document.getElementById('f-litri');if(e)e.value=p.litri}
     if(p.prezzoLitro){const e=document.getElementById('f-prezzo');if(e)e.value=p.prezzoLitro}
     if(p.stazione){const e=document.getElementById('f-staz');if(e)e.value=p.stazione}
-  }catch(e){console.error(e)}
+  }catch(e){if(e.message!=='no key')showToast('Errore AI: '+e.message,false,true)}
   if(l)l.style.display='none';
 }
 async function extractRic(file,tipo){
@@ -1164,7 +1164,7 @@ async function extractRic(file,tipo){
   try{const j=await callGemini(file,'Display wallbox o app ricarica. JSON puro:\n{"kwhTotali":""}\nkwhTotali=somma totale kWh. Solo JSON.');
     const p=JSON.parse(j);
     if(p.kwhTotali){const e=document.getElementById(iid);if(e)e.value=p.kwhTotali}
-  }catch(e){console.error(e)}
+  }catch(e){if(e.message!=='no key')showToast('Errore AI: '+e.message,false,true)}
   if(l)l.style.display='none';
 }
 async function extractAz(file){
@@ -1175,7 +1175,7 @@ async function extractAz(file){
     ricAz.sort((a,b)=>b.data>a.data?1:-1);LS.set('rt_ricaz',ricAz);
     removeToast(toast);showToast('✓ '+( p.sessioni||[]).length+' ricariche aggiunte!',true);
     setTimeout(()=>render(),1500);
-  }catch(e){removeToast(toast);showToast('Errore. Prova manualmente.',false,true)}
+  }catch(e){removeToast(toast);showToast('Errore AI: '+e.message,false,true)}
 }
 async function extractBoll(file,tipo){
   const isCasa=tipo==='casa';
@@ -1207,7 +1207,7 @@ async function extractBoll(file,tipo){
       ${p.fornitore?'Fornitore: '+es(p.fornitore)+'<br/>':''}
       Coeff: <strong>€ ${n(p.costoKwh).toFixed(isCasa?4:5)}/kWh</strong>
     </div>`;
-  }catch(e){if(res)res.innerHTML=`<div style="color:var(--r);font-size:12px;margin-top:8px">Errore lettura. Inserisci manualmente.</div>`}
+  }catch(e){if(res)res.innerHTML=`<div style="color:var(--r);font-size:12px;margin-top:8px">Errore AI: ${es(e.message)}. Inserisci manualmente.</div>`}
   if(l)l.style.display='none';
 }
 
