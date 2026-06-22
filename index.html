@@ -1193,11 +1193,17 @@ async function extractAz(file){
   const toast=showToast('Lettura ricarica...',false);
   try{const j=await callGemini(file,'Display wallbox o app. Piu sessioni possibili. JSON puro:\n{"sessioni":[{"data":"YYYY-MM-DD","kwh":""}]}\nData di oggi se non visibile: '+td()+'. Solo JSON.',600);
     const p=JSON.parse(j);
-    const added=(p.sessioni||[]).filter(s=>s.kwh&&String(s.kwh).trim()!=='');
-    added.forEach(s=>{ricAz.push({id:Date.now()+Math.random(),data:s.data||td(),kwh:String(s.kwh),note:''})});
+    const sessioni=(p.sessioni||[]).filter(s=>s.kwh&&String(s.kwh).trim()!=='');
+    let nuove=0,saltate=0;
+    sessioni.forEach(s=>{
+      const data=s.data||td(),kwh=String(s.kwh).trim();
+      if(ricAz.some(r=>r.data===data&&String(r.kwh).trim()===kwh)){saltate++;return;}
+      ricAz.push({id:Date.now()+Math.random(),data,kwh,note:''});nuove++;
+    });
     ricAz.sort((a,b)=>b.data>a.data?1:-1);LS.set('rt_ricaz',ricAz);
     removeToast(toast);
-    if(added.length>0){showToast('✓ '+added.length+' ricariche aggiunte!',true);setTimeout(()=>render(),1500);}
+    if(nuove>0){showToast('✓ '+nuove+' aggiunte'+(saltate?' · '+saltate+' già presenti':'')+'!',true);setTimeout(()=>render(),1500);}
+    else if(saltate>0)showToast('⚠️ Tutte le '+saltate+' ricariche già presenti',false,true);
     else showToast('⚠️ Nessun kWh trovato nella foto',false,true);
   }catch(e){removeToast(toast);showToast('Errore AI: '+e.message,false,true)}
 }
