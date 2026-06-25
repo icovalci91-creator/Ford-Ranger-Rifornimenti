@@ -509,8 +509,14 @@ function rStepForm(k){
     <div class="fl" style="margin-bottom:12px"><label>Data</label><input type="date" id="f-data" value="${td()}"/></div>
     <button class="btn bo" onclick="saveCruscotto()">Conferma</button>`;
   if(k==='scontrino')return`
-    <div class="up" id="up-sc" onclick="document.getElementById('fi-sc').click()"><input type="file" accept="image/*" capture="environment" id="fi-sc" style="display:none"/>
-    <div id="pv-sc"><div class="uico">⛽</div><div class="utxt">Fotografa lo scontrino<br/>AI estrae litri e prezzo</div></div></div>
+    <input type="file" accept="image/*" capture="environment" id="fi-sc-cam" style="display:none"/>
+    <input type="file" accept="image/*" multiple id="fi-sc-gal" style="display:none"/>
+    <div class="up" id="up-sc" onclick="document.getElementById('fi-sc-gal').click()">
+    <div id="pv-sc"><div class="uico">⛽</div><div class="utxt">Carica le foto dello scontrino<br/>Puoi aggiungere più foto dello stesso rifornimento<br/>AI estrae litri e prezzo</div></div></div>
+    <div style="display:flex;gap:8px;margin-bottom:10px">
+      <button class="btn bgh bsm" style="flex:1" onclick="document.getElementById('fi-sc-cam').click()">📷 Scatta foto</button>
+      <button class="btn bgh bsm" style="flex:1" onclick="document.getElementById('fi-sc-gal').click()">🖼️ Dal rullino</button>
+    </div>
     <div id="ld-sc" style="display:none" class="ld"><div class="sp"></div> Lettura...</div>
     <div class="fg"><div class="fl"><label>Litri</label><input type="text" id="f-litri" placeholder="38.5" inputmode="decimal"/></div>
     <div class="fl"><label>€/Litro</label><input type="text" id="f-prezzo" placeholder="1.899" inputmode="decimal"/></div></div>
@@ -1130,8 +1136,13 @@ async function toB64(file){
 }
 async function callGemini(file,prompt,maxTok=400){
   if(!geminiKey){showToast('⚠️ Imposta la chiave Gemini (🤖)',false,true);throw new Error('no key')}
-  const b64=await toB64(file);
-  const mime=file.type||'image/jpeg';
+  // accetta un singolo file oppure un elenco di file (più foto)
+  const files=Array.isArray(file)?file:(file&&file.length!==undefined&&!file.name?Array.from(file):[file]);
+  const imgParts=[];
+  for(const f of files){
+    const b64=await toB64(f);
+    imgParts.push({inline_data:{mime_type:f.type||'image/jpeg',data:b64}});
+  }
   // prova 2.5-flash, se sovraccarico (503) o quota (429) ripiega su 2.0-flash
   const models=['gemini-2.5-flash','gemini-2.0-flash'];
   let lastErr=new Error('AI non disponibile');
@@ -1140,7 +1151,7 @@ async function callGemini(file,prompt,maxTok=400){
     if(m.startsWith('gemini-2.5'))gen.thinkingConfig={thinkingBudget:0};
     const res=await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${m}:generateContent?key=${geminiKey}`,{
       method:'POST',headers:{'Content-Type':'application/json'},
-      body:JSON.stringify({contents:[{parts:[{inline_data:{mime_type:mime,data:b64}},{text:prompt}]}],generationConfig:gen})
+      body:JSON.stringify({contents:[{parts:[...imgParts,{text:prompt}]}],generationConfig:gen})
     });
     const data=await res.json();
     if(data.error){
@@ -1160,6 +1171,8 @@ async function callGemini(file,prompt,maxTok=400){
   throw lastErr;
 }
 function showPrev(file,id){const el=document.getElementById(id);if(!el)return;el.innerHTML=file.type.startsWith('image/')?`<img src="${URL.createObjectURL(file)}" class="uprev"/>`:`<div style="color:var(--g);font-size:13px">📄 ${es(file.name)}</div>`}
+function showPrevMulti(files,id){const el=document.getElementById(id);if(!el)return;const list=Array.from(files);if(list.length<=1)return showPrev(list[0],id);
+  el.innerHTML=`<div style="display:flex;gap:6px;flex-wrap:wrap;justify-content:center">${list.map(f=>f.type.startsWith('image/')?`<img src="${URL.createObjectURL(f)}" class="uprev" style="max-height:64px"/>`:`<div style="color:var(--g);font-size:13px">📄 ${es(f.name)}</div>`).join('')}</div><div style="font-size:11px;color:var(--mu);margin-top:6px">${list.length} foto</div>`}
 
 async function extractCruscotto(file){
   showPrev(file,'pv-cr');const l=document.getElementById('ld-cr');if(l)l.style.display='flex';
@@ -1170,9 +1183,10 @@ async function extractCruscotto(file){
   }catch(e){if(e.message!=='no key')showToast('Errore AI: '+e.message,false,true)}
   if(l)l.style.display='none';
 }
-async function extractScontrino(file){
-  showPrev(file,'pv-sc');const l=document.getElementById('ld-sc');if(l)l.style.display='flex';
-  try{const j=await callGemini(file,'Scontrino rifornimento. JSON puro:\n{"litri":"","prezzoLitro":"","stazione":""}\nSolo JSON.');
+async function extractScontrino(files){
+  const list=Array.from(files.length!==undefined&&!files.name?files:[files]);
+  showPrevMulti(list,'pv-sc');const l=document.getElementById('ld-sc');if(l)l.style.display='flex';
+  try{const j=await callGemini(list,'Una o più foto dello STESSO rifornimento (scontrino e/o display pompa). Usa tutte le immagini insieme. JSON puro:\n{"litri":"","prezzoLitro":"","stazione":""}\nSolo JSON.');
     const p=JSON.parse(j);
     if(p.litri){const e=document.getElementById('f-litri');if(e)e.value=p.litri}
     if(p.prezzoLitro){const e=document.getElementById('f-prezzo');if(e)e.value=p.prezzoLitro}
@@ -1385,13 +1399,14 @@ function impData(file){
 function attachEv(){
   const map=[
     ['fi-cr',extractCruscotto],
-    ['fi-sc',extractScontrino],
     ['fi-ca',f=>extractRic(f,'casa')],
     ['fi-la',f=>extractRic(f,'lavoro')],
     ['fi-baz',f=>extractBoll(f,'az')],
     ['fi-bca',f=>extractBoll(f,'casa')],
   ];
   map.forEach(([id,fn])=>{const el=document.getElementById(id);if(el)el.addEventListener('change',e=>{if(e.target.files[0])fn(e.target.files[0])})});
+  // scontrino: scatto singolo (fotocamera) oppure più foto dal rullino, lette insieme dall'AI
+  ['fi-sc-cam','fi-sc-gal'].forEach(id=>{const el=document.getElementById(id);if(el)el.addEventListener('change',e=>{if(e.target.files.length)extractScontrino(e.target.files)})});
   const impFi=document.getElementById('imp-fi');
   if(impFi)impFi.onchange=e=>{if(e.target.files[0])impData(e.target.files[0])};
   const rData=document.getElementById('ric-data');
