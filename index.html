@@ -308,7 +308,7 @@ hr{border:none;border-top:1px solid var(--bd);margin:14px 0}
   <div class="mo">
     <button class="mox" onclick="closeMo('mo-luoghi')">✕</button>
     <div class="motitle">📍 Luoghi ricarica</div>
-    <p class="info">Inserisci ciò che compare nelle foto per distinguere casa e lavoro (indirizzo, nome stazione/wallbox o fornitore). L'AI userà questi riferimenti per capire da sola se una ricarica è di Casa o Lavoro. Salvati solo sul tuo dispositivo.</p>
+    <p class="info">Se nella foto è scritto "casa" o "lavoro", vince sempre quella parola. Questi riferimenti (indirizzo, nome stazione/wallbox o fornitore) servono come <strong>secondo criterio</strong>: l'AI li usa solo quando nella foto non compare la parola casa/lavoro. Salvati solo sul tuo dispositivo.</p>
     <div class="fl" style="margin-bottom:12px"><label>🏠 Casa</label><input type="text" id="luo-casa" placeholder="es. Via Roma 5 · Wallbox Garage · Enel X" autocomplete="off"/></div>
     <div class="fl" style="margin-bottom:14px"><label>🏢 Lavoro</label><input type="text" id="luo-lav" placeholder="es. Via Industria 12 · Azienda SpA · Be Charge" autocomplete="off"/></div>
     <button class="btn bo" onclick="saveLuoghi()">Salva</button>
@@ -1224,8 +1224,8 @@ async function extractRic(files,tipo){
   const list=toList(files);
   const pid=tipo==='casa'?'pv-ca':'pv-la',lid=tipo==='casa'?'ld-ca':'ld-la';
   showPrevMulti(list,pid);const l=document.getElementById(lid);if(l)l.style.display='flex';
-  const rif=(luoCasa||luoLav)?`\nRiferimenti dell'utente (confronta indirizzo/nome stazione/fornitore visibili nelle foto):\n- CASA: ${luoCasa||'(non impostato)'}\n- LAVORO: ${luoLav||'(non impostato)'}\nSe una foto corrisponde a uno di questi, usa quel tipo.`:'';
-  try{const j=await callGemini(list,'Più foto di ricariche auto (display wallbox o app). IMPORTANTE: ogni foto è una ricarica DISTINTA, leggile UNA PER UNA e NON sommarle tra loro (a meno che due foto siano la stessa identica schermata). Per OGNI ricarica indica il tipo (CASA o LAVORO/AZIENDA) e i kWh. Distingui in base a: nome stazione/wallbox/ID, indirizzo o luogo, fornitore, scritte esplicite (casa/home vs lavoro/azienda/work).'+rif+'\nJSON puro:\n{"letture":[{"tipo":"casa|lavoro|","kwh":""}]}\nUna voce per ogni ricarica letta. tipo="" se non determinabile. Solo JSON.',800);
+  const rif=(luoCasa||luoLav)?`\nRiferimenti dell'utente (per il punto 2):\n- CASA: ${luoCasa||'(non impostato)'}\n- LAVORO: ${luoLav||'(non impostato)'}`:'';
+  try{const j=await callGemini(list,'Più foto di ricariche auto (display wallbox o app). IMPORTANTE: ogni foto è una ricarica DISTINTA, leggile UNA PER UNA e NON sommarle tra loro (a meno che due foto siano la stessa identica schermata). Per OGNI ricarica indica il tipo (casa o lavoro) e i kWh.\nDETERMINA IL TIPO IN QUEST\'ORDINE DI PRIORITÀ:\n1) Se nella foto compare la parola "casa"/"home" → tipo="casa"; se compare "lavoro"/"azienda"/"work" → tipo="lavoro". Questa scritta esplicita ha SEMPRE la precedenza.\n2) SOLO se al punto 1 non trovi nessuna di quelle parole, confronta indirizzo, nome stazione/wallbox/ID o fornitore visibili con i riferimenti dell\'utente qui sotto.\n3) Se resti incerto, tipo="".'+rif+'\nJSON puro:\n{"letture":[{"tipo":"casa|lavoro|","kwh":""}]}\nUna voce per ogni ricarica letta. Solo JSON.',800);
     const p=JSON.parse(j);
     const letture=(p.letture||[]).filter(r=>r&&String(r.kwh).trim()!==''&&n(r.kwh)>0);
     if(l)l.style.display='none';
