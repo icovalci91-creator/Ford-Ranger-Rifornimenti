@@ -1200,13 +1200,31 @@ async function extractScontrino(files){
 }
 async function extractRic(files,tipo){
   const list=toList(files);
-  const pid=tipo==='casa'?'pv-ca':'pv-la',lid=tipo==='casa'?'ld-ca':'ld-la',iid=tipo==='casa'?'f-kwc':'f-kwl';
+  const pid=tipo==='casa'?'pv-ca':'pv-la',lid=tipo==='casa'?'ld-ca':'ld-la';
   showPrevMulti(list,pid);const l=document.getElementById(lid);if(l)l.style.display='flex';
-  try{const j=await callGemini(list,'Una o più foto del display wallbox o app di ricarica (stessa lettura). Usa tutte le immagini insieme. JSON puro:\n{"kwhTotali":""}\nkwhTotali=somma totale kWh. Solo JSON.');
+  try{const j=await callGemini(list,'Una o più foto del display wallbox o app di ricarica auto (stessa lettura). Usa tutte le immagini insieme. Determina se la ricarica è a CASA o al LAVORO/AZIENDA in base a: nome stazione/wallbox/ID, indirizzo o luogo, scritte esplicite (casa/home vs lavoro/azienda/work). JSON puro:\n{"tipo":"casa|lavoro|","kwhTotali":""}\ntipo="casa" se domestica/personale, "lavoro" se aziendale, "" se non determinabile. kwhTotali=somma totale kWh. Solo JSON.');
     const p=JSON.parse(j);
-    if(p.kwhTotali){const e=document.getElementById(iid);if(e)e.value=p.kwhTotali}
+    if(!p.kwhTotali){if(l)l.style.display='none';showToast('⚠️ Nessun kWh trovato nella foto',false,true);return}
+    const det=(String(p.tipo||'').toLowerCase().includes('lav'))?'lavoro':(String(p.tipo||'').toLowerCase().includes('cas')?'casa':'');
+    const target=det||tipo; // se l'AI non capisce, resta sullo step corrente
+    routeKwh(target,tipo,p.kwhTotali,!!det&&det!==tipo);
   }catch(e){if(e.message!=='no key')showToast('Errore AI: '+e.message,false,true)}
   if(l)l.style.display='none';
+}
+// instrada i kWh nello step corretto (casa/lavoro) in base al tipo riconosciuto dall'AI
+function routeKwh(target,current,kwh,mismatch){
+  const lbl=target==='casa'?'Casa':'Lavoro';
+  const el=document.getElementById(target==='casa'?'f-kwc':'f-kwl');
+  if(el){ // il campo del tipo riconosciuto è già visibile: lo compilo
+    el.value=kwh;
+    if(mismatch)showToast('🔎 Riconosciuta ricarica '+lbl+' · controlla e conferma',false);
+    return;
+  }
+  // il campo del tipo riconosciuto appartiene a un altro step: salvo lì con conferma
+  askConfirm('La foto sembra una ricarica '+lbl+' di '+kwh+' kWh. La inserisco nello step Ricariche '+lbl+'?',()=>{
+    if(target==='casa')cycle.ricCasa={kwh};else cycle.ricLav={kwh};
+    LS.set('rt_cycle',cycle);render();showToast('✓ '+kwh+' kWh salvati in Ricariche '+lbl,true);
+  });
 }
 async function extractAz(file){
   const toast=showToast('Lettura ricarica...',false);
