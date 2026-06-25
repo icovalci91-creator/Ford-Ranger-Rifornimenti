@@ -499,40 +499,41 @@ function rStepSum(k){
   return'';
 }
 
+// blocco caricamento foto: scatto al momento (fotocamera) oppure più foto dal rullino
+function upBlock(base,ico,txt,green){
+  const sp=green?'sp sg':'sp';
+  return `
+    <input type="file" accept="image/*" capture="environment" id="fi-${base}-cam" style="display:none"/>
+    <input type="file" accept="image/*" multiple id="fi-${base}-gal" style="display:none"/>
+    <div class="up${green?' ug':''}" id="up-${base}" onclick="document.getElementById('fi-${base}-gal').click()">
+    <div id="pv-${base}"><div class="uico">${ico}</div><div class="utxt">${txt}</div></div></div>
+    <div style="display:flex;gap:8px;margin-bottom:10px">
+      <button class="btn bgh bsm" style="flex:1" onclick="document.getElementById('fi-${base}-cam').click()">📷 Scatta foto</button>
+      <button class="btn bgh bsm" style="flex:1" onclick="document.getElementById('fi-${base}-gal').click()">🖼️ Dal rullino</button>
+    </div>
+    <div id="ld-${base}" style="display:none" class="ld"><div class="${sp}"></div> Lettura...</div>`;
+}
+
 function rStepForm(k){
   if(k==='cruscotto')return`
-    <div class="up" id="up-cr" onclick="document.getElementById('fi-cr').click()"><input type="file" accept="image/*" capture="environment" id="fi-cr" style="display:none"/>
-    <div id="pv-cr"><div class="uico">🚗</div><div class="utxt">Fotografa il cruscotto<br/>AI estrae KM percorsi e KM elettrico</div></div></div>
-    <div id="ld-cr" style="display:none" class="ld"><div class="sp"></div> Lettura...</div>
+    ${upBlock('cr','🚗','Carica le foto del cruscotto<br/>Puoi aggiungere più foto dello stesso ciclo<br/>AI estrae KM percorsi e KM elettrico',false)}
     <div class="fg"><div class="fl"><label>KM Percorsi (ciclo)</label><input type="text" id="f-km" placeholder="542.8" inputmode="decimal"/></div>
     <div class="fl"><label>KM in Elettrico</label><input type="text" id="f-kmel" placeholder="38" inputmode="decimal"/></div></div>
     <div class="fl" style="margin-bottom:12px"><label>Data</label><input type="date" id="f-data" value="${td()}"/></div>
     <button class="btn bo" onclick="saveCruscotto()">Conferma</button>`;
   if(k==='scontrino')return`
-    <input type="file" accept="image/*" capture="environment" id="fi-sc-cam" style="display:none"/>
-    <input type="file" accept="image/*" multiple id="fi-sc-gal" style="display:none"/>
-    <div class="up" id="up-sc" onclick="document.getElementById('fi-sc-gal').click()">
-    <div id="pv-sc"><div class="uico">⛽</div><div class="utxt">Carica le foto dello scontrino<br/>Puoi aggiungere più foto dello stesso rifornimento<br/>AI estrae litri e prezzo</div></div></div>
-    <div style="display:flex;gap:8px;margin-bottom:10px">
-      <button class="btn bgh bsm" style="flex:1" onclick="document.getElementById('fi-sc-cam').click()">📷 Scatta foto</button>
-      <button class="btn bgh bsm" style="flex:1" onclick="document.getElementById('fi-sc-gal').click()">🖼️ Dal rullino</button>
-    </div>
-    <div id="ld-sc" style="display:none" class="ld"><div class="sp"></div> Lettura...</div>
+    ${upBlock('sc','⛽','Carica le foto dello scontrino<br/>Puoi aggiungere più foto dello stesso rifornimento<br/>AI estrae litri e prezzo',false)}
     <div class="fg"><div class="fl"><label>Litri</label><input type="text" id="f-litri" placeholder="38.5" inputmode="decimal"/></div>
     <div class="fl"><label>€/Litro</label><input type="text" id="f-prezzo" placeholder="1.899" inputmode="decimal"/></div></div>
     <div class="fl" style="margin-bottom:12px"><label>Stazione (opz.)</label><input type="text" id="f-staz" placeholder="ENI Autostrada"/></div>
     <button class="btn bo" onclick="saveScontrino()">Conferma</button>`;
   if(k==='ricCasa')return`
-    <div class="up ug" id="up-ca" onclick="document.getElementById('fi-ca').click()"><input type="file" accept="image/*" capture="environment" id="fi-ca" style="display:none"/>
-    <div id="pv-ca"><div class="uico">🏠</div><div class="utxt">Foto wallbox o app di ricarica<br/>AI legge i kWh totali</div></div></div>
-    <div id="ld-ca" style="display:none" class="ld"><div class="sp sg"></div> Lettura...</div>
+    ${upBlock('ca','🏠','Carica le foto del wallbox o app di ricarica<br/>Puoi aggiungere più foto<br/>AI legge i kWh totali',true)}
     ${!costoKwh?'<div class="warn">⚠️ Imposta €/kWh in Bolletta per calcolare i costi</div>':''}
     <div class="fl" style="margin-bottom:12px"><label>kWh Totali a Casa</label><input type="text" class="ig" id="f-kwc" placeholder="28.4" inputmode="decimal"/></div>
     <button class="btn bo" onclick="saveRicCasa()">Conferma</button>`;
   if(k==='ricLav')return`
-    <div class="up ug" id="up-la" onclick="document.getElementById('fi-la').click()"><input type="file" accept="image/*" capture="environment" id="fi-la" style="display:none"/>
-    <div id="pv-la"><div class="uico">🏢</div><div class="utxt">Foto wallbox aziendale<br/>AI legge i kWh totali</div></div></div>
-    <div id="ld-la" style="display:none" class="ld"><div class="sp sg"></div> Lettura...</div>
+    ${upBlock('la','🏢','Carica le foto del wallbox aziendale<br/>Puoi aggiungere più foto<br/>AI legge i kWh totali',true)}
     <div class="fl" style="margin-bottom:12px"><label>kWh Totali al Lavoro</label><input type="text" class="ig" id="f-kwl" placeholder="15.2" inputmode="decimal"/></div>
     <button class="btn bg" onclick="saveRicLav()">Conferma</button>`;
   return'';
@@ -1134,6 +1135,8 @@ function saveBollCasa(){
 async function toB64(file){
   return new Promise((res,rej)=>{const r=new FileReader();r.onload=()=>res(r.result.split(',')[1]);r.onerror=rej;r.readAsDataURL(file)});
 }
+// normalizza un singolo File o una FileList in un array di File
+function toList(f){return Array.from(f&&f.length!==undefined&&!f.name?f:[f])}
 async function callGemini(file,prompt,maxTok=400){
   if(!geminiKey){showToast('⚠️ Imposta la chiave Gemini (🤖)',false,true);throw new Error('no key')}
   // accetta un singolo file oppure un elenco di file (più foto)
@@ -1174,9 +1177,10 @@ function showPrev(file,id){const el=document.getElementById(id);if(!el)return;el
 function showPrevMulti(files,id){const el=document.getElementById(id);if(!el)return;const list=Array.from(files);if(list.length<=1)return showPrev(list[0],id);
   el.innerHTML=`<div style="display:flex;gap:6px;flex-wrap:wrap;justify-content:center">${list.map(f=>f.type.startsWith('image/')?`<img src="${URL.createObjectURL(f)}" class="uprev" style="max-height:64px"/>`:`<div style="color:var(--g);font-size:13px">📄 ${es(f.name)}</div>`).join('')}</div><div style="font-size:11px;color:var(--mu);margin-top:6px">${list.length} foto</div>`}
 
-async function extractCruscotto(file){
-  showPrev(file,'pv-cr');const l=document.getElementById('ld-cr');if(l)l.style.display='flex';
-  try{const j=await callGemini(file,'Cruscotto Ford Ranger PHEV. JSON puro:\n{"kmPercorsi":"","kmElettrico":""}\nkmPercorsi=km percorsi in questo ciclo. kmElettrico=km in modalita elettrica. Solo JSON.');
+async function extractCruscotto(files){
+  const list=toList(files);
+  showPrevMulti(list,'pv-cr');const l=document.getElementById('ld-cr');if(l)l.style.display='flex';
+  try{const j=await callGemini(list,'Una o più foto del cruscotto Ford Ranger PHEV (stesso ciclo). Usa tutte le immagini insieme. JSON puro:\n{"kmPercorsi":"","kmElettrico":""}\nkmPercorsi=km percorsi in questo ciclo. kmElettrico=km in modalita elettrica. Solo JSON.');
     const p=JSON.parse(j);
     if(p.kmPercorsi){const e=document.getElementById('f-km');if(e)e.value=p.kmPercorsi}
     if(p.kmElettrico){const e=document.getElementById('f-kmel');if(e)e.value=p.kmElettrico}
@@ -1184,7 +1188,7 @@ async function extractCruscotto(file){
   if(l)l.style.display='none';
 }
 async function extractScontrino(files){
-  const list=Array.from(files.length!==undefined&&!files.name?files:[files]);
+  const list=toList(files);
   showPrevMulti(list,'pv-sc');const l=document.getElementById('ld-sc');if(l)l.style.display='flex';
   try{const j=await callGemini(list,'Una o più foto dello STESSO rifornimento (scontrino e/o display pompa). Usa tutte le immagini insieme. JSON puro:\n{"litri":"","prezzoLitro":"","stazione":""}\nSolo JSON.');
     const p=JSON.parse(j);
@@ -1194,10 +1198,11 @@ async function extractScontrino(files){
   }catch(e){if(e.message!=='no key')showToast('Errore AI: '+e.message,false,true)}
   if(l)l.style.display='none';
 }
-async function extractRic(file,tipo){
+async function extractRic(files,tipo){
+  const list=toList(files);
   const pid=tipo==='casa'?'pv-ca':'pv-la',lid=tipo==='casa'?'ld-ca':'ld-la',iid=tipo==='casa'?'f-kwc':'f-kwl';
-  showPrev(file,pid);const l=document.getElementById(lid);if(l)l.style.display='flex';
-  try{const j=await callGemini(file,'Display wallbox o app ricarica. JSON puro:\n{"kwhTotali":""}\nkwhTotali=somma totale kWh. Solo JSON.');
+  showPrevMulti(list,pid);const l=document.getElementById(lid);if(l)l.style.display='flex';
+  try{const j=await callGemini(list,'Una o più foto del display wallbox o app di ricarica (stessa lettura). Usa tutte le immagini insieme. JSON puro:\n{"kwhTotali":""}\nkwhTotali=somma totale kWh. Solo JSON.');
     const p=JSON.parse(j);
     if(p.kwhTotali){const e=document.getElementById(iid);if(e)e.value=p.kwhTotali}
   }catch(e){if(e.message!=='no key')showToast('Errore AI: '+e.message,false,true)}
@@ -1397,16 +1402,20 @@ function impData(file){
 // ATTACH EVENTS
 // ══════════════════════════════════════════════════════════════════════════════
 function attachEv(){
+  // step con foto multiple (scatto fotocamera o più foto dal rullino, lette insieme dall'AI)
+  const multi=[
+    ['cr',extractCruscotto],
+    ['sc',extractScontrino],
+    ['ca',f=>extractRic(f,'casa')],
+    ['la',f=>extractRic(f,'lavoro')],
+  ];
+  multi.forEach(([b,fn])=>['cam','gal'].forEach(s=>{const el=document.getElementById('fi-'+b+'-'+s);if(el)el.addEventListener('change',e=>{if(e.target.files.length)fn(e.target.files)})}));
+  // bollette: singolo file/PDF
   const map=[
-    ['fi-cr',extractCruscotto],
-    ['fi-ca',f=>extractRic(f,'casa')],
-    ['fi-la',f=>extractRic(f,'lavoro')],
     ['fi-baz',f=>extractBoll(f,'az')],
     ['fi-bca',f=>extractBoll(f,'casa')],
   ];
   map.forEach(([id,fn])=>{const el=document.getElementById(id);if(el)el.addEventListener('change',e=>{if(e.target.files[0])fn(e.target.files[0])})});
-  // scontrino: scatto singolo (fotocamera) oppure più foto dal rullino, lette insieme dall'AI
-  ['fi-sc-cam','fi-sc-gal'].forEach(id=>{const el=document.getElementById(id);if(el)el.addEventListener('change',e=>{if(e.target.files.length)extractScontrino(e.target.files)})});
   const impFi=document.getElementById('imp-fi');
   if(impFi)impFi.onchange=e=>{if(e.target.files[0])impData(e.target.files[0])};
   const rData=document.getElementById('ric-data');
