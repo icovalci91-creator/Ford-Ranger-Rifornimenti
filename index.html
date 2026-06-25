@@ -1224,29 +1224,38 @@ async function extractRic(files,tipo){
   const list=toList(files);
   const pid=tipo==='casa'?'pv-ca':'pv-la',lid=tipo==='casa'?'ld-ca':'ld-la';
   showPrevMulti(list,pid);const l=document.getElementById(lid);if(l)l.style.display='flex';
-  const rif=(luoCasa||luoLav)?`\nRiferimenti dell'utente (confronta indirizzo/nome stazione/fornitore visibili nella foto):\n- CASA: ${luoCasa||'(non impostato)'}\n- LAVORO: ${luoLav||'(non impostato)'}\nSe la foto corrisponde a uno di questi, usa quel tipo.`:'';
-  try{const j=await callGemini(list,'Una o più foto del display wallbox o app di ricarica auto (stessa lettura). Usa tutte le immagini insieme. Determina se la ricarica è a CASA o al LAVORO/AZIENDA in base a: nome stazione/wallbox/ID, indirizzo o luogo, fornitore, scritte esplicite (casa/home vs lavoro/azienda/work).'+rif+'\nJSON puro:\n{"tipo":"casa|lavoro|","kwhTotali":""}\ntipo="casa" se domestica/personale, "lavoro" se aziendale, "" se non determinabile. kwhTotali=somma totale kWh. Solo JSON.');
+  const rif=(luoCasa||luoLav)?`\nRiferimenti dell'utente (confronta indirizzo/nome stazione/fornitore visibili nelle foto):\n- CASA: ${luoCasa||'(non impostato)'}\n- LAVORO: ${luoLav||'(non impostato)'}\nSe una foto corrisponde a uno di questi, usa quel tipo.`:'';
+  try{const j=await callGemini(list,'Più foto di ricariche auto (display wallbox o app). IMPORTANTE: ogni foto è una ricarica DISTINTA, leggile UNA PER UNA e NON sommarle tra loro (a meno che due foto siano la stessa identica schermata). Per OGNI ricarica indica il tipo (CASA o LAVORO/AZIENDA) e i kWh. Distingui in base a: nome stazione/wallbox/ID, indirizzo o luogo, fornitore, scritte esplicite (casa/home vs lavoro/azienda/work).'+rif+'\nJSON puro:\n{"letture":[{"tipo":"casa|lavoro|","kwh":""}]}\nUna voce per ogni ricarica letta. tipo="" se non determinabile. Solo JSON.',800);
     const p=JSON.parse(j);
-    if(!p.kwhTotali){if(l)l.style.display='none';showToast('⚠️ Nessun kWh trovato nella foto',false,true);return}
-    const det=(String(p.tipo||'').toLowerCase().includes('lav'))?'lavoro':(String(p.tipo||'').toLowerCase().includes('cas')?'casa':'');
-    const target=det||tipo; // se l'AI non capisce, resta sullo step corrente
-    routeKwh(target,tipo,p.kwhTotali,!!det&&det!==tipo);
-  }catch(e){if(e.message!=='no key')showToast('Errore AI: '+e.message,false,true)}
-  if(l)l.style.display='none';
+    const letture=(p.letture||[]).filter(r=>r&&String(r.kwh).trim()!==''&&n(r.kwh)>0);
+    if(l)l.style.display='none';
+    if(!letture.length){showToast('⚠️ Nessun kWh trovato nelle foto',false,true);return}
+    let totCasa=0,nCasa=0,totLav=0,nLav=0;
+    letture.forEach(r=>{
+      const t=String(r.tipo||'').toLowerCase();
+      const det=t.includes('lav')?'lavoro':(t.includes('cas')?'casa':tipo); // ignoto -> step corrente
+      if(det==='casa'){totCasa+=n(r.kwh);nCasa++}else{totLav+=n(r.kwh);nLav++}
+    });
+    totCasa=r2(totCasa);totLav=r2(totLav);
+    applyRicTotals(tipo,totCasa,nCasa,totLav,nLav);
+  }catch(e){if(l)l.style.display='none';if(e.message!=='no key')showToast('Errore AI: '+e.message,false,true)}
 }
-// instrada i kWh nello step corretto (casa/lavoro) in base al tipo riconosciuto dall'AI
-function routeKwh(target,current,kwh,mismatch){
-  const lbl=target==='casa'?'Casa':'Lavoro';
-  const el=document.getElementById(target==='casa'?'f-kwc':'f-kwl');
-  if(el){ // il campo del tipo riconosciuto è già visibile: lo compilo
-    el.value=kwh;
-    if(mismatch)showToast('🔎 Riconosciuta ricarica '+lbl+' · controlla e conferma',false);
+// distribuisce i kWh letti tra casa e lavoro
+function applyRicTotals(current,totCasa,nCasa,totLav,nLav){
+  const sCasa='🏠 Casa '+totCasa+' kWh'+(nCasa>1?' ('+nCasa+' ric.)':''),
+        sLav='🏢 Lavoro '+totLav+' kWh'+(nLav>1?' ('+nLav+' ric.)':'');
+  const otherTot=current==='casa'?totLav:totCasa, curTot=current==='casa'?totCasa:totLav;
+  if(otherTot<=0){ // tutte dello stesso tipo dello step corrente: compila e conferma manuale
+    if(curTot>0){const el=document.getElementById(current==='casa'?'f-kwc':'f-kwl');if(el)el.value=curTot}
+    showToast('🔎 Rilevato: '+(current==='casa'?sCasa:sLav)+' · controlla e conferma',false);
     return;
   }
-  // il campo del tipo riconosciuto appartiene a un altro step: salvo lì con conferma
-  askConfirm('La foto sembra una ricarica '+lbl+' di '+kwh+' kWh. La inserisco nello step Ricariche '+lbl+'?',()=>{
-    if(target==='casa')cycle.ricCasa={kwh};else cycle.ricLav={kwh};
-    LS.set('rt_cycle',cycle);render();showToast('✓ '+kwh+' kWh salvati in Ricariche '+lbl,true);
+  // mix casa+lavoro: riepilogo e salvataggio diretto negli step corrispondenti
+  const riep=[nCasa?sCasa:'',nLav?sLav:''].filter(Boolean).join(' · ');
+  askConfirm('Rilevate ricariche di tipo diverso — '+riep+'. Le salvo negli step corrispondenti?',()=>{
+    if(totCasa>0)cycle.ricCasa={kwh:String(totCasa)};
+    if(totLav>0)cycle.ricLav={kwh:String(totLav)};
+    LS.set('rt_cycle',cycle);render();showToast('✓ Salvate: '+riep,true);
   });
 }
 async function extractAz(file){
