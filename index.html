@@ -315,6 +315,17 @@ hr{border:none;border-top:1px solid var(--bd);margin:14px 0}
   </div>
 </div>
 
+<!-- MODAL revisione ricariche -->
+<div class="mov" id="mo-ricrev" style="display:none" onclick="if(event.target===this)closeMo('mo-ricrev')">
+  <div class="mo">
+    <button class="mox" onclick="closeMo('mo-ricrev')">✕</button>
+    <div class="motitle">⚡ Conferma ricariche</div>
+    <p class="info">Controlla ogni ricarica letta dalle foto: correggi i kWh se serve e scegli 🏠 Casa o 🏢 Lavoro. Poi salva.</p>
+    <div id="ricrev-body"></div>
+    <button class="btn bo" style="margin-top:12px" onclick="saveRicRev()">Salva ricariche</button>
+  </div>
+</div>
+
 <!-- MODAL confirm -->
 <div class="mov" id="mo-confirm" style="display:none">
   <div class="mo">
@@ -1230,33 +1241,44 @@ async function extractRic(files,tipo){
     const letture=(p.letture||[]).filter(r=>r&&String(r.kwh).trim()!==''&&n(r.kwh)>0);
     if(l)l.style.display='none';
     if(!letture.length){showToast('⚠️ Nessun kWh trovato nelle foto',false,true);return}
-    let totCasa=0,nCasa=0,totLav=0,nLav=0;
-    letture.forEach(r=>{
-      const t=String(r.tipo||'').toLowerCase();
-      const det=t.includes('lav')?'lavoro':(t.includes('cas')?'casa':tipo); // ignoto -> step corrente
-      if(det==='casa'){totCasa+=n(r.kwh);nCasa++}else{totLav+=n(r.kwh);nLav++}
-    });
-    totCasa=r2(totCasa);totLav=r2(totLav);
-    applyRicTotals(tipo,totCasa,nCasa,totLav,nLav);
+    openRicRev(letture);
   }catch(e){if(l)l.style.display='none';if(e.message!=='no key')showToast('Errore AI: '+e.message,false,true)}
 }
-// distribuisce i kWh letti tra casa e lavoro
-function applyRicTotals(current,totCasa,nCasa,totLav,nLav){
-  const sCasa='🏠 Casa '+totCasa+' kWh'+(nCasa>1?' ('+nCasa+' ric.)':''),
-        sLav='🏢 Lavoro '+totLav+' kWh'+(nLav>1?' ('+nLav+' ric.)':'');
-  const otherTot=current==='casa'?totLav:totCasa, curTot=current==='casa'?totCasa:totLav;
-  if(otherTot<=0){ // tutte dello stesso tipo dello step corrente: compila e conferma manuale
-    if(curTot>0){const el=document.getElementById(current==='casa'?'f-kwc':'f-kwl');if(el)el.value=curTot}
-    showToast('🔎 Rilevato: '+(current==='casa'?sCasa:sLav)+' · controlla e conferma',false);
-    return;
-  }
-  // mix casa+lavoro: riepilogo e salvataggio diretto negli step corrispondenti
-  const riep=[nCasa?sCasa:'',nLav?sLav:''].filter(Boolean).join(' · ');
-  askConfirm('Rilevate ricariche di tipo diverso — '+riep+'. Le salvo negli step corrispondenti?',()=>{
-    if(totCasa>0)cycle.ricCasa={kwh:String(totCasa)};
-    if(totLav>0)cycle.ricLav={kwh:String(totLav)};
-    LS.set('rt_cycle',cycle);render();showToast('✓ Salvate: '+riep,true);
+// ── REVISIONE RICARICHE (conferma/correzione casa-lavoro prima del salvataggio) ──
+let ricRev=[];
+function openRicRev(letture){
+  ricRev=letture.map(r=>{
+    const t=String(r.tipo||'').toLowerCase();
+    return {kwh:r2(n(r.kwh)),tipo:t.includes('lav')?'lavoro':(t.includes('cas')?'casa':'')};
   });
+  renderRicRev();
+  document.getElementById('mo-ricrev').style.display='flex';
+}
+function renderRicRev(){
+  const b=document.getElementById('ricrev-body');if(!b)return;
+  b.innerHTML=ricRev.map((r,i)=>`
+    <div style="display:flex;gap:8px;align-items:center;margin-bottom:10px">
+      <input type="text" inputmode="decimal" value="${r.kwh}" oninput="ricRev[${i}].kwh=this.value"
+        style="width:84px;padding:8px;background:var(--bg3);border:1px solid var(--bd);border-radius:6px;color:#fff"/>
+      <span style="color:var(--mu);font-size:12px">kWh</span>
+      <div style="display:flex;gap:6px;margin-left:auto">
+        <button class="btn bsm ${r.tipo==='casa'?'bo':'bgh'}" onclick="ricRev[${i}].tipo='casa';renderRicRev()">🏠 Casa</button>
+        <button class="btn bsm ${r.tipo==='lavoro'?'bg':'bgh'}" onclick="ricRev[${i}].tipo='lavoro';renderRicRev()">🏢 Lavoro</button>
+      </div>
+    </div>`).join('');
+  let tc=0,tl=0;ricRev.forEach(r=>{const k=n(r.kwh);if(r.tipo==='casa')tc+=k;else if(r.tipo==='lavoro')tl+=k});
+  b.innerHTML+=`<div style="margin-top:6px;padding-top:10px;border-top:1px solid var(--bd);font-size:13px;display:flex;justify-content:space-between">
+    <span>🏠 Casa <strong>${r2(tc)}</strong> kWh</span><span>🏢 Lavoro <strong>${r2(tl)}</strong> kWh</span></div>`;
+}
+function saveRicRev(){
+  if(ricRev.some(r=>!r.tipo)){showToast('⚠️ Assegna Casa o Lavoro a tutte le ricariche',false,true);return}
+  let totCasa=0,totLav=0;
+  ricRev.forEach(r=>{const k=n(r.kwh);if(!k)return;if(r.tipo==='casa')totCasa+=k;else totLav+=k});
+  totCasa=r2(totCasa);totLav=r2(totLav);
+  if(totCasa>0)cycle.ricCasa={kwh:String(totCasa)};
+  if(totLav>0)cycle.ricLav={kwh:String(totLav)};
+  LS.set('rt_cycle',cycle);closeMo('mo-ricrev');render();
+  showToast('✓ Salvate: 🏠 '+totCasa+' · 🏢 '+totLav+' kWh',true);
 }
 async function extractAz(file){
   const toast=showToast('Lettura ricarica...',false);
