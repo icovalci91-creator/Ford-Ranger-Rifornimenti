@@ -202,6 +202,7 @@ hr{border:none;border-top:1px solid var(--bd);margin:14px 0}
     <img src="logo.png" alt="Ford Ranger PHEV Wildtrak" class="logoimg"/>
     <div class="hdr-btns">
       <div class="pill" id="ai-pill" onclick="openMo('mo-gemini')" title="AI Gemini">🤖</div>
+      <div class="pill" onclick="openMo('mo-luoghi')" title="Luoghi ricarica">📍</div>
       <div class="pill" onclick="openMo('mo-backup')" title="Backup">💾</div>
     </div>
   </div>
@@ -302,6 +303,18 @@ hr{border:none;border-top:1px solid var(--bd);margin:14px 0}
   </div>
 </div>
 
+<!-- MODAL luoghi ricarica -->
+<div class="mov" id="mo-luoghi" style="display:none" onclick="if(event.target===this)closeMo('mo-luoghi')">
+  <div class="mo">
+    <button class="mox" onclick="closeMo('mo-luoghi')">✕</button>
+    <div class="motitle">📍 Luoghi ricarica</div>
+    <p class="info">Inserisci ciò che compare nelle foto per distinguere casa e lavoro (indirizzo, nome stazione/wallbox o fornitore). L'AI userà questi riferimenti per capire da sola se una ricarica è di Casa o Lavoro. Salvati solo sul tuo dispositivo.</p>
+    <div class="fl" style="margin-bottom:12px"><label>🏠 Casa</label><input type="text" id="luo-casa" placeholder="es. Via Roma 5 · Wallbox Garage · Enel X" autocomplete="off"/></div>
+    <div class="fl" style="margin-bottom:14px"><label>🏢 Lavoro</label><input type="text" id="luo-lav" placeholder="es. Via Industria 12 · Azienda SpA · Be Charge" autocomplete="off"/></div>
+    <button class="btn bo" onclick="saveLuoghi()">Salva</button>
+  </div>
+</div>
+
 <!-- MODAL confirm -->
 <div class="mov" id="mo-confirm" style="display:none">
   <div class="mo">
@@ -336,6 +349,8 @@ const LS={
 let tab='ciclo';
 let costoKwh=LS.get('rt_kwh','');
 let geminiKey=LS.get('rt_gemini_key','');
+let luoCasa=LS.get('rt_luo_casa','');
+let luoLav=LS.get('rt_luo_lav','');
 let hist=LS.get('rt_hist',[]);
 let ricAz=LS.get('rt_ricaz',[]);
 let bollRef=LS.get('rt_boll',null);
@@ -343,7 +358,7 @@ let bimArch=LS.get('rt_bimarch',[]);
 let cycle=LS.get('rt_cycle',{cruscotto:null,scontrino:null,ricCasa:null,ricLav:null});
 let sOpen={}, sDetail={};
 
-function saveAll(){LS.set('rt_hist',hist);LS.set('rt_ricaz',ricAz);LS.set('rt_boll',bollRef);LS.set('rt_bimarch',bimArch);LS.set('rt_cycle',cycle);LS.set('rt_kwh',costoKwh);LS.set('rt_gemini_key',geminiKey)}
+function saveAll(){LS.set('rt_hist',hist);LS.set('rt_ricaz',ricAz);LS.set('rt_boll',bollRef);LS.set('rt_bimarch',bimArch);LS.set('rt_cycle',cycle);LS.set('rt_kwh',costoKwh);LS.set('rt_gemini_key',geminiKey);LS.set('rt_luo_casa',luoCasa);LS.set('rt_luo_lav',luoLav)}
 
 // ── HELPERS ──────────────────────────────────────────────────────────────────
 function n(v){
@@ -387,6 +402,7 @@ function openMo(id){
   }
   if(id==='mo-ric'){const e=document.getElementById('ric-data');if(e&&!e.value)e.value=td()}
   if(id==='mo-kwh'){const e=document.getElementById('kwh-in');if(e)e.value=costoKwh}
+  if(id==='mo-luoghi'){const c=document.getElementById('luo-casa');if(c)c.value=luoCasa;const v=document.getElementById('luo-lav');if(v)v.value=luoLav}
   if(id==='mo-nrif'){
     const kc=document.getElementById('nr-kwcc');if(kc&&!kc.value)kc.value=LS.get('rt_kwh_casa','')?n(LS.get('rt_kwh_casa','')).toFixed(4):'';
     const kl=document.getElementById('nr-kwla');if(kl&&!kl.value)kl.value=costoKwh?n(costoKwh).toFixed(5):'';
@@ -403,6 +419,12 @@ function askConfirm(msg,fn){
 function saveKwh(){
   costoKwh=document.getElementById('kwh-in').value.trim();
   LS.set('rt_kwh',costoKwh);closeMo('mo-kwh');render();
+}
+function saveLuoghi(){
+  luoCasa=document.getElementById('luo-casa').value.trim();
+  luoLav=document.getElementById('luo-lav').value.trim();
+  LS.set('rt_luo_casa',luoCasa);LS.set('rt_luo_lav',luoLav);
+  closeMo('mo-luoghi');showToast('✓ Luoghi salvati',true);
 }
 function saveGeminiKey(){
   geminiKey=document.getElementById('gemini-in').value.trim();
@@ -1202,7 +1224,8 @@ async function extractRic(files,tipo){
   const list=toList(files);
   const pid=tipo==='casa'?'pv-ca':'pv-la',lid=tipo==='casa'?'ld-ca':'ld-la';
   showPrevMulti(list,pid);const l=document.getElementById(lid);if(l)l.style.display='flex';
-  try{const j=await callGemini(list,'Una o più foto del display wallbox o app di ricarica auto (stessa lettura). Usa tutte le immagini insieme. Determina se la ricarica è a CASA o al LAVORO/AZIENDA in base a: nome stazione/wallbox/ID, indirizzo o luogo, scritte esplicite (casa/home vs lavoro/azienda/work). JSON puro:\n{"tipo":"casa|lavoro|","kwhTotali":""}\ntipo="casa" se domestica/personale, "lavoro" se aziendale, "" se non determinabile. kwhTotali=somma totale kWh. Solo JSON.');
+  const rif=(luoCasa||luoLav)?`\nRiferimenti dell'utente (confronta indirizzo/nome stazione/fornitore visibili nella foto):\n- CASA: ${luoCasa||'(non impostato)'}\n- LAVORO: ${luoLav||'(non impostato)'}\nSe la foto corrisponde a uno di questi, usa quel tipo.`:'';
+  try{const j=await callGemini(list,'Una o più foto del display wallbox o app di ricarica auto (stessa lettura). Usa tutte le immagini insieme. Determina se la ricarica è a CASA o al LAVORO/AZIENDA in base a: nome stazione/wallbox/ID, indirizzo o luogo, fornitore, scritte esplicite (casa/home vs lavoro/azienda/work).'+rif+'\nJSON puro:\n{"tipo":"casa|lavoro|","kwhTotali":""}\ntipo="casa" se domestica/personale, "lavoro" se aziendale, "" se non determinabile. kwhTotali=somma totale kWh. Solo JSON.');
     const p=JSON.parse(j);
     if(!p.kwhTotali){if(l)l.style.display='none';showToast('⚠️ Nessun kWh trovato nella foto',false,true);return}
     const det=(String(p.tipo||'').toLowerCase().includes('lav'))?'lavoro':(String(p.tipo||'').toLowerCase().includes('cas')?'casa':'');
@@ -1375,6 +1398,7 @@ function expData(){
     rt_boll_arch:LS.get('rt_boll_arch',[]),
     rt_kwh:costoKwh,rt_kwh_casa:LS.get('rt_kwh_casa',''),
     rt_bim_active:LS.get('rt_bim_active',''),
+    rt_luo_casa:luoCasa,rt_luo_lav:luoLav,
     rt_cycle:cycle
   };
   const blob=new Blob([JSON.stringify(data,null,2)],{type:'application/json'});
@@ -1397,6 +1421,8 @@ function impData(file){
       if(data.rt_boll){bollRef=data.rt_boll;LS.set('rt_boll',bollRef)}
       if(data.rt_kwh!==undefined){costoKwh=data.rt_kwh;LS.set('rt_kwh',costoKwh)}
       if(data.rt_kwh_casa!==undefined)LS.set('rt_kwh_casa',data.rt_kwh_casa);
+      if(data.rt_luo_casa!==undefined){luoCasa=data.rt_luo_casa;LS.set('rt_luo_casa',luoCasa)}
+      if(data.rt_luo_lav!==undefined){luoLav=data.rt_luo_lav;LS.set('rt_luo_lav',luoLav)}
       if(data.rt_boll_casa)LS.set('rt_boll_casa',data.rt_boll_casa);
       if(data.rt_boll_arch)LS.set('rt_boll_arch',data.rt_boll_arch);
       if(data.rt_cycle){cycle=data.rt_cycle;LS.set('rt_cycle',cycle)}
