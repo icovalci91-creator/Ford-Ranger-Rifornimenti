@@ -499,7 +499,7 @@ function rCiclo(){
   steps.forEach((s,i)=>{
     const isA=i===cur,isD=s.done;
     h+=`<div class="card${isD?' cf':isA?' co':''}">
-      <div class="ctitle"><span>${s.ico}</span>${s.lbl}${isD?'<span class="ck">✓</span>':''}</div>`;
+      <div class="ctitle"><span>${s.ico}</span>${s.lbl}${isD?`<span class="ck">✓</span><button class="btn bgh bsm" style="margin-left:auto" onclick="clearStep('${s.k}')">🗑️ Azzera</button>`:''}</div>`;
     if(isD)h+=rStepSum(s.k);
     else if(isA)h+=rStepForm(s.k);
     h+='</div>';
@@ -629,6 +629,12 @@ function resetCycle(){
   askConfirm('Azzerare il ciclo corrente?',()=>{
     cycle={cruscotto:null,scontrino:null,ricCasa:null,ricLav:null};
     LS.set('rt_cycle',cycle);render();
+  });
+}
+function clearStep(k){
+  const lbls={cruscotto:'Foto Cruscotto',scontrino:'Scontrino Pompa',ricCasa:'Ricariche Casa',ricLav:'Ricariche Lavoro'};
+  askConfirm('Azzerare "'+lbls[k]+'"? Potrai rifare questo passaggio.',()=>{
+    cycle[k]=null;LS.set('rt_cycle',cycle);render();showToast('✓ '+lbls[k]+' azzerato',true);
   });
 }
 function saveFinal(){
