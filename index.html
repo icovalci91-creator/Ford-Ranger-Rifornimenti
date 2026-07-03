@@ -8,7 +8,7 @@
 <meta name="apple-mobile-web-app-title" content="RangerTrack"/>
 <meta name="theme-color" content="#0f0f0f"/>
 <meta http-equiv="Cache-Control" content="no-cache,no-store,must-revalidate"/>
-<title>RangerTrack v202606101100</title>
+<title>RangerTrack v202607031600</title>
 <link rel="apple-touch-icon" href="/apple-touch-icon.png"/>
 <link rel="preconnect" href="https://fonts.googleapis.com"/>
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@400;700;900&family=Barlow:wght@400;500&display=swap"/>
@@ -1428,7 +1428,7 @@ function fillBkSum(){
     <div>🏠 €/kWh casa: <strong>${LS.get('rt_kwh_casa','')||'—'}</strong></div>
     <div style="margin-top:6px;color:var(--o)">Ultimo backup: <strong>${LS.get('rt_last_bk','mai')}</strong></div>`;
 }
-function expData(){
+async function expData(){
   const data={version:3,exportDate:new Date().toISOString(),
     rt_hist:hist,rt_ricaz:ricAz,rt_bimarch:bimArch,
     rt_boll:bollRef,rt_boll_casa:LS.get('rt_boll_casa',null),
@@ -1438,10 +1438,25 @@ function expData(){
     rt_luo_casa:luoCasa,rt_luo_lav:luoLav,
     rt_cycle:cycle
   };
-  const blob=new Blob([JSON.stringify(data,null,2)],{type:'application/json'});
+  const json=JSON.stringify(data,null,2);
+  const nome='rangertrack_backup_'+td()+'.json';
+  const cap=window.Capacitor;
+  if(cap&&cap.isNativePlatform&&cap.isNativePlatform()){
+    // App nativa: il download via blob non funziona in WKWebView → foglio di condivisione iOS
+    try{
+      const w=await cap.Plugins.Filesystem.writeFile({path:nome,data:json,directory:'CACHE',encoding:'utf8'});
+      await cap.Plugins.Share.share({title:nome,url:w.uri});
+      LS.set('rt_last_bk',new Date().toLocaleDateString('it-IT'));
+      fillBkSum();showToast('✓ Backup condiviso!',true);
+    }catch(e){
+      if(!/cancel/i.test(e.message||''))showToast('Errore backup: '+e.message,false,true);
+    }
+    return;
+  }
+  const blob=new Blob([json],{type:'application/json'});
   const url=URL.createObjectURL(blob);
   const a=document.createElement('a');
-  a.href=url;a.download='rangertrack_backup_'+td()+'.json';a.click();
+  a.href=url;a.download=nome;a.click();
   URL.revokeObjectURL(url);
   LS.set('rt_last_bk',new Date().toLocaleDateString('it-IT'));
   fillBkSum();
