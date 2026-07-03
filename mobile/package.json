@@ -1,0 +1,17 @@
+{
+  "name": "rangertrack-mobile",
+  "version": "1.0.0",
+  "private": true,
+  "description": "App iOS RangerTrack (Capacitor, bundled da index.html)",
+  "scripts": {
+    "build": "node build-www.mjs",
+    "sync": "node build-www.mjs && npx cap sync ios"
+  },
+  "dependencies": {
+    "@capacitor/core": "^7.0.0",
+    "@capacitor/ios": "^7.0.0"
+  },
+  "devDependencies": {
+    "@capacitor/cli": "^7.0.0"
+  }
+}
