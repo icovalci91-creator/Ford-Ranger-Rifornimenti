@@ -343,7 +343,7 @@ hr{border:none;border-top:1px solid var(--bd);margin:14px 0}
     <button class="mox" onclick="closeMo('mo-backup')">✕</button>
     <div class="motitle">💾 Backup Dati</div>
     <div style="background:var(--bg3);border-radius:6px;padding:12px;margin-bottom:14px;font-size:12px;line-height:1.8" id="bk-sum"></div>
-    <button class="btn bo" onclick="expData()" style="margin-bottom:10px">⬇️ Esporta JSON</button>
+    <button class="btn bo" onclick="expData()" style="margin-bottom:10px">📤 Esporta / Condividi backup</button>
     <button class="btn bgh" onclick="document.getElementById('imp-fi').click()">⬆️ Importa JSON</button>
     <div id="imp-res" style="margin-top:10px;font-size:12px"></div>
   </div>
@@ -1418,15 +1418,24 @@ function doPrint(tipo,bimIdx){
 // ══════════════════════════════════════════════════════════════════════════════
 // BACKUP
 // ══════════════════════════════════════════════════════════════════════════════
+function daysSinceBackup(){
+  const ts=LS.get('rt_last_bk_ts',0);
+  if(!ts)return null;
+  return Math.floor((Date.now()-ts)/86400000);
+}
+function hasData(){return hist.length||ricAz.length||bimArch.length||!!(cycle.cruscotto||cycle.scontrino||cycle.ricCasa||cycle.ricLav)}
 function fillBkSum(){
   const el=document.getElementById('bk-sum');
   if(!el)return;
+  const dsb=daysSinceBackup();
+  const bkTxt=dsb===null?'mai':(dsb===0?'oggi':dsb===1?'ieri':dsb+' giorni fa');
+  const bkColor=(dsb===null||dsb>=7)?'var(--r)':'var(--o)';
   el.innerHTML=`<div>📋 Cicli: <strong>${hist.length}</strong></div>
     <div>🏢 Ricariche az.: <strong>${ricAz.length}</strong></div>
     <div>📦 Bimestri archiviati: <strong>${bimArch.length}</strong></div>
     <div>⚡ €/kWh az.: <strong>${costoKwh||'—'}</strong></div>
     <div>🏠 €/kWh casa: <strong>${LS.get('rt_kwh_casa','')||'—'}</strong></div>
-    <div style="margin-top:6px;color:var(--o)">Ultimo backup: <strong>${LS.get('rt_last_bk','mai')}</strong></div>`;
+    <div style="margin-top:6px;color:${bkColor}">Ultimo backup: <strong>${bkTxt}</strong></div>`;
 }
 async function expData(){
   const data={version:3,exportDate:new Date().toISOString(),
@@ -1440,26 +1449,37 @@ async function expData(){
   };
   const json=JSON.stringify(data,null,2);
   const nome='rangertrack_backup_'+td()+'.json';
+  const markDone=()=>{LS.set('rt_last_bk',new Date().toLocaleDateString('it-IT'));LS.set('rt_last_bk_ts',Date.now());fillBkSum()};
   const cap=window.Capacitor;
   if(cap&&cap.isNativePlatform&&cap.isNativePlatform()){
     // App nativa: il download via blob non funziona in WKWebView → foglio di condivisione iOS
     try{
       const w=await cap.Plugins.Filesystem.writeFile({path:nome,data:json,directory:'CACHE',encoding:'utf8'});
       await cap.Plugins.Share.share({title:nome,url:w.uri});
-      LS.set('rt_last_bk',new Date().toLocaleDateString('it-IT'));
-      fillBkSum();showToast('✓ Backup condiviso!',true);
+      markDone();showToast('✓ Backup condiviso!',true);
     }catch(e){
       if(!/cancel/i.test(e.message||''))showToast('Errore backup: '+e.message,false,true);
     }
     return;
+  }
+  // Web: prova la condivisione del file (iOS/Android salvano su File/iCloud/email), altrimenti scarica
+  try{
+    const file=new File([json],nome,{type:'application/json'});
+    if(navigator.canShare&&navigator.canShare({files:[file]})){
+      await navigator.share({files:[file],title:nome});
+      markDone();showToast('✓ Backup condiviso!',true);
+      return;
+    }
+  }catch(e){
+    if(/abort|cancel/i.test((e&&e.name||'')+(e&&e.message||'')))return; // utente ha annullato
+    // altrimenti prosegue col download
   }
   const blob=new Blob([json],{type:'application/json'});
   const url=URL.createObjectURL(blob);
   const a=document.createElement('a');
   a.href=url;a.download=nome;a.click();
   URL.revokeObjectURL(url);
-  LS.set('rt_last_bk',new Date().toLocaleDateString('it-IT'));
-  fillBkSum();
+  markDone();showToast('✓ Backup salvato!',true);
 }
 function impData(file){
   const reader=new FileReader();
@@ -1551,6 +1571,25 @@ if(isIOS&&!window.navigator.standalone&&!LS.get('rt_hint',false)){
     document.body.appendChild(b);LS.set('rt_hint',true);
   },3000);
 }
+
+// Promemoria backup: se ci sono dati e l'ultimo backup manca o è vecchio (≥7 giorni)
+function backupReminder(){
+  try{if(sessionStorage.getItem('bk_dismissed'))return}catch{}
+  if(document.getElementById('bk-reminder')||!hasData())return;
+  const dsb=daysSinceBackup();
+  if(dsb!==null&&dsb<7)return;
+  const msg=dsb===null?'Non hai mai salvato un backup dei tuoi dati.':'Sono passati '+dsb+' giorni dall\'ultimo backup.';
+  const b=document.createElement('div');
+  b.id='bk-reminder';
+  b.style.cssText='position:fixed;bottom:calc(env(safe-area-inset-bottom,0px)+10px);left:50%;transform:translateX(-50%);background:#1a1a1a;border:1px solid var(--r);border-radius:10px;padding:12px 14px;font-size:12px;color:#ddd;text-align:center;z-index:210;width:calc(100% - 28px);max-width:380px;box-shadow:0 8px 32px rgba(0,0,0,.8)';
+  b.innerHTML=`<div style="margin-bottom:9px">⚠️ ${msg}<br/>Salva una copia per non rischiare di perderli.</div>
+    <div style="display:flex;gap:8px">
+      <button class="btn bo bsm" style="flex:1" onclick="document.getElementById('bk-reminder').remove();openMo('mo-backup')">💾 Backup ora</button>
+      <button class="btn bgh bsm" onclick="try{sessionStorage.setItem('bk_dismissed','1')}catch{};document.getElementById('bk-reminder').remove()">Più tardi</button>
+    </div>`;
+  document.body.appendChild(b);
+}
+setTimeout(backupReminder,4000);
 </script>
 </body>
 </html>
