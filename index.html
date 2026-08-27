@@ -1590,6 +1590,11 @@ function backupReminder(){
   document.body.appendChild(b);
 }
 setTimeout(backupReminder,4000);
+
+// Service worker (solo web): apertura offline e istantanea. Nel wrapper nativo (capacitor://) non serve.
+if('serviceWorker' in navigator && location.protocol.startsWith('http')){
+  window.addEventListener('load',()=>{navigator.serviceWorker.register('./sw.js').catch(()=>{})});
+}
 </script>
 </body>
 </html>
