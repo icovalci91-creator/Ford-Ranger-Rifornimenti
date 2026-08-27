@@ -47,5 +47,11 @@
 	</array>
 	<key>UIViewControllerBasedStatusBarAppearance</key>
 	<true/>
+	<key>NSCameraUsageDescription</key>
+	<string>RangerTrack usa la fotocamera per fotografare scontrini, cruscotto e display di ricarica.</string>
+	<key>NSPhotoLibraryUsageDescription</key>
+	<string>RangerTrack accede alle foto per caricare scontrini e letture di ricarica dal rullino.</string>
+	<key>NSPhotoLibraryAddUsageDescription</key>
+	<string>RangerTrack può salvare nel rullino i file esportati.</string>
 </dict>
 </plist>

@@ -7,7 +7,7 @@ const here = dirname(fileURLToPath(import.meta.url));
 const root = join(here, '..');
 const www = join(here, 'www');
 
-const files = ['index.html', 'logo.png', 'apple-touch-icon.png', 'preload_bimestri.json'];
+const files = ['index.html', 'logo.png', 'apple-touch-icon.png', 'preload_bimestri.json', 'sw.js'];
 
 rmSync(www, { recursive: true, force: true });
 mkdirSync(www, { recursive: true });

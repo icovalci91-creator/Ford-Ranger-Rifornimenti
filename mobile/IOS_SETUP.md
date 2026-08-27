@@ -45,6 +45,36 @@ npx cap sync ios
 
 poi da Xcode: **Run** sul telefono collegato (o Archive → TestFlight).
 
+## Modalità di caricamento: LIVE vs BUNDLED
+
+In `capacitor.config.json` è impostato `server.url` verso **https://er-rifornimenti.pages.dev**:
+
+- **LIVE (attuale)**: l'app carica la webapp online. **Vantaggio**: ogni push su `main` si vede
+  subito nell'app senza ricompilare. **Svantaggio**: serve rete alla prima apertura e i dati
+  vivono nell'origine `pages.dev` della WebView.
+- **BUNDLED / offline**: rimuovi il blocco `"server": {...}` da `capacitor.config.json`, poi
+  `node build-www.mjs && npx cap sync ios` e ricompila. L'app funziona **senza rete** (usa i file
+  impacchettati). Consigliata per la versione "definitiva" quando smettiamo di iterare.
+
+## Permessi (già configurati)
+
+`Info.plist` include `NSCameraUsageDescription`, `NSPhotoLibraryUsageDescription` e
+`NSPhotoLibraryAddUsageDescription`. **Senza questi iOS fa crashare l'app** appena si apre la
+fotocamera/rullino. Se aggiungi funzioni che usano altro hardware, servono le relative chiavi.
+
+## Migrazione dati dalla web-app all'app nativa
+
+I dati NON si trasferiscono da soli: web (Safari/PWA) e app nativa hanno storage separati.
+Procedura senza perdite né duplicati:
+
+1. Nella **web-app** (Safari): 📍/💾 → **Esporta / Condividi backup** → salva il file
+   `rangertrack_backup_*.json` (su File/iCloud o inviatelo a te stesso).
+2. Apri l'**app nativa**, vai in 💾 **Backup Dati** → **Importa JSON** → scegli quel file.
+3. Verifica che cicli, ricariche e bimestri coincidano. **Da quel momento usa UNA sola** delle due
+   (consiglio: l'app nativa), altrimenti i dati divergono.
+4. In LIVE l'app carica `pages.dev`: se in futuro passi a BUNDLED, l'origine cambia e i dati
+   "spariscono" dalla vista → rifai un export prima e un import dopo il passaggio.
+
 ## Note
 
 - La chiave Gemini va inserita anche nell'app (pulsante 🤖) — è salvata in localStorage per dispositivo.
