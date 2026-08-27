@@ -579,10 +579,13 @@ function rFinalSum(){
   const kmPerc=n(c.cruscotto?.km),kmEl=n(c.cruscotto?.kmel);
   const kmTerm=Math.max(0,kmPerc-kmEl);
   const kwhCasa=n(c.ricCasa?.kwh),kwhLav=n(c.ricLav?.kwh);
-  const cK=n(costoKwh);
-  const costoEl=(kwhCasa+kwhLav)*cK;
-  const rimborso=kwhLav*cK;
+  const cKaz=n(costoKwh);                                  // €/kWh aziendale (rimborso lavoro)
+  const cKcasa=n(LS.get('rt_kwh_casa','')||costoKwh);      // €/kWh casa
+  const costoElCasa=kwhCasa*cKcasa;
+  const rimborso=kwhLav*cKaz;
+  const costoEl=costoElCasa+rimborso;                      // coerente con lo Storico (casa@casa + lavoro@az)
   const totCiclo=costoBenz+costoEl;
+  const cK=cKaz;                                           // usato nel box rimborso
   const consumoT=litri>0&&kmTerm>0?r2(kmTerm/litri):null;
   const consumoC=litri>0&&kmPerc>0?r2(kmPerc/litri):null;
   const costKm=kmPerc>0?r2(totCiclo/kmPerc):null;
