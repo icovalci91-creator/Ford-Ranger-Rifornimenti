@@ -2,10 +2,6 @@
   "appId": "app.rangertrack.mobile",
   "appName": "RangerTrack",
   "webDir": "www",
-  "server": {
-    "url": "https://er-rifornimenti.pages.dev",
-    "cleartext": false
-  },
   "ios": {
     "contentInset": "never",
     "backgroundColor": "#0f0f0f"

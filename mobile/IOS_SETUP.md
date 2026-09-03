@@ -45,16 +45,23 @@ npx cap sync ios
 
 poi da Xcode: **Run** sul telefono collegato (o Archive → TestFlight).
 
-## Modalità di caricamento: LIVE vs BUNDLED
+## Modalità di caricamento: BUNDLED (default) vs LIVE
 
-In `capacitor.config.json` è impostato `server.url` verso **https://er-rifornimenti.pages.dev**:
+`capacitor.config.json` è in modalità **BUNDLED**: l'app impacchetta la webapp e funziona
+**offline**, senza dipendere da nessun URL. È la modalità robusta e consigliata.
 
-- **LIVE (attuale)**: l'app carica la webapp online. **Vantaggio**: ogni push su `main` si vede
-  subito nell'app senza ricompilare. **Svantaggio**: serve rete alla prima apertura e i dati
-  vivono nell'origine `pages.dev` della WebView.
-- **BUNDLED / offline**: rimuovi il blocco `"server": {...}` da `capacitor.config.json`, poi
-  `node build-www.mjs && npx cap sync ios` e ricompila. L'app funziona **senza rete** (usa i file
-  impacchettati). Consigliata per la versione "definitiva" quando smettiamo di iterare.
+> ⚠️ Una configurazione LIVE con un URL `pages.dev` sbagliato/incompleto produce una
+> **schermata nera** (la WebView carica un indirizzo inesistente). Safari mobile accorcia i
+> domini lunghi, quindi verifica sempre l'URL COMPLETO prima di usarlo.
+
+- **BUNDLED (attuale)**: `node build-www.mjs && npx cap sync ios`, poi Run in Xcode. Offline, sicuro.
+- **LIVE (opzionale)**: per aggiornamenti istantanei senza ricompilare, aggiungi in
+  `capacitor.config.json`, dopo `"webDir": "www",`:
+  ```json
+  "server": { "url": "https://IL-TUO-DOMINIO-COMPLETO.pages.dev", "cleartext": false },
+  ```
+  usando l'URL **completo e verificato** (aprilo prima in un browser desktop). Poi `npx cap sync ios`
+  e ricompila.
 
 ## Permessi (già configurati)
 
