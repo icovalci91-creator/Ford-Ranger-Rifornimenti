@@ -8,7 +8,7 @@
 <meta name="apple-mobile-web-app-title" content="RangerTrack"/>
 <meta name="theme-color" content="#0f0f0f"/>
 <meta http-equiv="Cache-Control" content="no-cache,no-store,must-revalidate"/>
-<title>RangerTrack v2026.10.01-3</title>
+<title>RangerTrack v2026.10.01-4</title>
 <link rel="apple-touch-icon" href="/apple-touch-icon.png"/>
 <link rel="preconnect" href="https://fonts.googleapis.com"/>
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@400;700;900&family=Barlow:wght@400;500&display=swap"/>
@@ -171,7 +171,7 @@ hr{border:none;border-top:1px solid var(--bd);margin:14px 0}
 /* PRINT */
 @media print{
   body{background:#fff!important;color:#000!important;font-family:Arial,sans-serif}
-  #app,.tabs,.hdr{display:none!important}
+  #app,.tabs,.hdr,.mov,.rt-toast,#undo-bar,#err-bar,#bk-reminder{display:none!important}
   #parea{display:block!important}
   .pp{padding:15mm;max-width:210mm;margin:0 auto}
   .ph{border-bottom:3px solid #000;padding-bottom:10px;margin-bottom:16px}
@@ -194,6 +194,28 @@ hr{border:none;border-top:1px solid var(--bd);margin:14px 0}
   @page{margin:15mm;size:A4}
 }
 #parea{display:none}
+/* anteprima documento a schermo: foglio bianco con le stesse classi della stampa */
+.paper{background:#fff;color:#111;border-radius:6px;font-family:Arial,Helvetica,sans-serif;overflow-x:auto}
+.paper .pp{padding:16px;min-width:300px}
+.paper .ph{border-bottom:3px solid #000;padding-bottom:8px;margin-bottom:12px}
+.paper .pht{font-size:16px;font-weight:bold}
+.paper .phs{font-size:11px;color:#555;margin-top:3px}
+.paper .psec{margin-bottom:12px}
+.paper .psect{font-size:12px;font-weight:bold;border-bottom:1px solid #ccc;padding-bottom:3px;margin-bottom:6px}
+.paper .ptbl{width:100%;border-collapse:collapse;font-size:11px}
+.paper .ptbl th{background:#333;color:#fff;padding:4px 6px;text-align:left}
+.paper .ptbl td{padding:4px 6px;border-bottom:1px solid #eee}
+.paper .ptbl tr.tr td{font-weight:bold;background:#f0f0f0}
+.paper .pbox{border:2px solid #000;padding:10px;margin:10px 0;border-radius:4px;font-size:11px}
+.paper .pbox.pg{border-color:#22c55e;background:#f0fdf4}
+.paper .pbox.po{border-color:#f97316;background:#fff7ed}
+.paper .pamt{font-size:22px;font-weight:900}
+.paper .psig{margin-top:18px;font-size:11px}
+.paper .pfoot{margin-top:14px;border-top:1px solid #ccc;padding-top:8px;font-size:9px;color:#888;display:flex;justify-content:space-between}
+/* sezioni dello Storico */
+.seg{display:flex;background:var(--bg2);border:1px solid var(--bd);border-radius:8px;padding:3px;margin-bottom:14px;gap:3px}
+.seg button{flex:1;background:transparent;border:none;color:var(--mu);font-family:'Barlow Condensed',sans-serif;font-size:12px;font-weight:700;letter-spacing:1px;text-transform:uppercase;padding:9px 4px;border-radius:6px;cursor:pointer;-webkit-tap-highlight-color:transparent}
+.seg button.on{background:var(--bg3);color:var(--o)}
 </style>
 </head>
 <body>
@@ -259,8 +281,13 @@ hr{border:none;border-top:1px solid var(--bd);margin:14px 0}
     <input type="hidden" id="pag-idx"/>
     <div class="fl" style="margin-bottom:12px"><label>Data pagamento</label><input type="date" id="pag-data"/></div>
     <div class="fl" style="margin-bottom:14px"><label>Note (opz.)</label><input type="text" id="pag-note" placeholder="es. Bonifico"/></div>
-    <button class="btn bg" onclick="salvaPag()">✓ Conferma e genera PDF ricevuta</button>
+    <button class="btn bg" onclick="salvaPag()">✓ Conferma e genera ricevuta</button>
   </div>
+</div>
+
+<!-- MODAL documento (report / ricevuta) -->
+<div class="mov" id="mo-doc" style="display:none" onclick="if(event.target===this)closeMo('mo-doc')">
+  <div class="mo"><button class="mox" onclick="closeMo('mo-doc')">✕</button><div id="doc-body"></div></div>
 </div>
 
 <!-- MODAL rifornimento storico -->
@@ -350,7 +377,7 @@ hr{border:none;border-top:1px solid var(--bd);margin:14px 0}
 </div>
 
 <script>
-const APP_VER='2026.10.01-3';
+const APP_VER='2026.10.01-4';
 // ── STORAGE ──────────────────────────────────────────────────────────────────
 const LS={
   get:(k,d)=>{try{const v=localStorage.getItem(k);return v!==null?JSON.parse(v):d}catch{return d}},
@@ -372,11 +399,8 @@ let sOpen={}, sDetail={};
 
 // ── PULIZIA DATI ALL'AVVIO: un dato malformato non deve mai bloccare l'app ──
 (function puliziaDati(){
-  const isoData=d=>{ // "15/08/2026" o "15-08-26" → "2026-08-15"; lascia invariate le date ISO
-    if(typeof d!=='string')return d;
-    const m=d.trim().match(/^(\d{1,2})[\/.\-](\d{1,2})[\/.\-](\d{2}|\d{4})$/);
-    return m?`${m[3].length===2?'20'+m[3]:m[3]}-${m[2].padStart(2,'0')}-${m[1].padStart(2,'0')}`:d;
-  };
+  // qualsiasi formato → "AAAA-MM-GG"; se illeggibile la lascio com'è (verrà segnalata da correggere)
+  const isoData=d=>{const v=normData(d);return v||d};
   const arr=v=>Array.isArray(v)?v.filter(x=>x&&typeof x==='object'):[];
   const fixRic=r=>{if(r.data)r.data=isoData(r.data);return r};
   let cambiato=false;
@@ -384,6 +408,13 @@ let sOpen={}, sDetail={};
   ricAz=pulito(ricAz,fixRic);
   hist=pulito(hist,h=>{if(h.data)h.data=isoData(h.data);return h});
   bimArch=pulito(bimArch,b=>{b.ricariche=arr(b.ricariche).map(fixRic);if(!b.key&&b.label)b.key=b.label;return b});
+  // ID ricariche univoci (le versioni vecchie usavano solo l'ora: due ricariche potevano avere lo stesso ID
+  // ed essere eliminate insieme)
+  const visti=new Set();
+  [...ricAz,...bimArch.flatMap(b=>b.ricariche)].forEach(r=>{
+    if(r.id===undefined||visti.has(r.id)){r.id=Date.now()*1000+Math.floor(Math.random()*1e6);cambiato=true}
+    visti.add(r.id);
+  });
   if(!cycle||typeof cycle!=='object'){cycle={cruscotto:null,scontrino:null,ricCasa:null,ricLav:null};cambiato=true}
   if(cambiato){LS.set('rt_ricaz',ricAz);LS.set('rt_hist',hist);LS.set('rt_bimarch',bimArch);LS.set('rt_cycle',cycle)}
 })();
@@ -406,6 +437,15 @@ window.addEventListener('unhandledrejection',e=>{const r=e.reason;if(r&&/no key|
 
 function saveAll(){LS.set('rt_hist',hist);LS.set('rt_ricaz',ricAz);LS.set('rt_boll',bollRef);LS.set('rt_bimarch',bimArch);LS.set('rt_cycle',cycle);LS.set('rt_kwh',costoKwh);LS.set('rt_gemini_key',geminiKey);LS.set('rt_luo_casa',luoCasa);LS.set('rt_luo_lav',luoLav);LS.set('rt_coeff_bim',LS.get('rt_coeff_bim',{}))}
 
+// ── REGISTRO ATTIVITÀ E DOCUMENTI GENERATI (visibili nello Storico) ─────────────
+let registro=LS.get('rt_log',[]);if(!Array.isArray(registro))registro=[];
+let documenti=LS.get('rt_docs',[]);if(!Array.isArray(documenti))documenti=[];
+function logEv(tipo,testo,bim){
+  registro.unshift({ts:new Date().toISOString(),tipo,testo,bim:bim||null});
+  if(registro.length>500)registro.length=500;
+  LS.set('rt_log',registro);
+}
+
 // ── HELPERS ──────────────────────────────────────────────────────────────────
 function n(v){
   if(v===null||v===undefined||v==='')return 0;
@@ -415,14 +455,37 @@ function n(v){
   return parseFloat(s)||0;
 }
 function r2(v){return Math.round(v*100)/100}
-function td(){return new Date().toISOString().split('T')[0]}
-function fd(d){if(!d)return'—';try{return new Date(d+'T12:00:00').toLocaleDateString('it-IT')}catch{return d}}
+// data di oggi nel fuso del telefono (toISOString usava l'ora UTC: dopo mezzanotte restava "ieri")
+function isoLocale(d){return`${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`}
+function td(){return isoLocale(new Date())}
+// Normalizza qualsiasi data in "AAAA-MM-GG"; '' se non leggibile.
+// Accetta: 2026-08-05, 2026-8-5, 2026-08-05T10:00, 5/8/2026, 05-08-26, 5.8.2026, "5 agosto 2026", "5 ago 26".
+function normData(s){
+  const MESI_IT=['gen','feb','mar','apr','mag','giu','lug','ago','set','ott','nov','dic'];
+  if(s===null||s===undefined)return'';
+  s=String(s).trim().toLowerCase();if(!s)return'';
+  const ok=(y,m,d)=>{
+    y=+y;m=+m;d=+d;if(y<100)y+=2000;
+    if(!(y>=2000&&y<=2100&&m>=1&&m<=12&&d>=1&&d<=31))return'';
+    const t=new Date(y,m-1,d);if(t.getMonth()!==m-1)return''; // es. 31/02
+    return`${y}-${String(m).padStart(2,'0')}-${String(d).padStart(2,'0')}`;
+  };
+  let m=s.match(/^(\d{4})[-\/.](\d{1,2})[-\/.](\d{1,2})/);if(m)return ok(m[1],m[2],m[3]);
+  m=s.match(/^(\d{1,2})[-\/.](\d{1,2})[-\/.](\d{2,4})\b/);if(m)return ok(m[3],m[2],m[1]);
+  m=s.match(/^(\d{1,2})\s+([a-zà-ù]+)\.?\s+(\d{2,4})/);
+  if(m){const i=MESI_IT.findIndex(p=>m[2].startsWith(p));if(i>=0)return ok(m[3],i+1,m[1])}
+  return'';
+}
+function fd(d){const v=normData(d);if(!v)return d?String(d):'—';const[y,m,g]=v.split('-');return`${g}/${m}/${y}`}
 function es(s){return String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;')}
 
 // ── BIMESTRE ─────────────────────────────────────────────────────────────────
+// bimestre di una data ("AAAA-Bn"); senza data = bimestre di oggi; data illeggibile = null (mai "NaN")
 function bimKey(dateStr){
-  const d=dateStr?new Date(dateStr+'T12:00:00'):new Date();
-  return `${d.getFullYear()}-B${Math.floor(d.getMonth()/2)+1}`;
+  const v=dateStr?normData(dateStr):td();
+  if(!v)return null;
+  const[y,m]=v.split('-').map(Number);
+  return `${y}-B${Math.floor((m-1)/2)+1}`;
 }
 function bimLbl(key){
   const nomi=['Gen-Feb','Mar-Apr','Mag-Giu','Lug-Ago','Set-Ott','Nov-Dic'];
@@ -535,7 +598,7 @@ function coeffCasaInfo(key){
 function coeffCasaForBim(key){return coeffCasaInfo(key).v}
 // Chiusura automatica: ogni ricarica di un bimestre già passato finisce nel suo bimestre archiviato
 // (creato o aggiornato), con il coefficiente della sua bolletta o la stima dell'ultimo noto.
-function autoChiudiBimestri(){
+function autoChiudiBimestri(silenzioso){
   const cur=curBim();
   const vecchie=ricAz.filter(r=>bimOfRic(r)<cur);
   if(!vecchie.length)return;
@@ -554,17 +617,27 @@ function autoChiudiBimestri(){
       idx=bimArch.length-1;
     }
     const b=bimArch[idx];
+    const nuovo=!(b.ricariche||[]).length&&!b.inviato&&!b.pagato;
     const esistenti=b.ricariche||[];
-    nuove.forEach(r=>{if(!esistenti.some(e=>e.data===r.data&&String(e.kwh).trim()===String(r.kwh).trim()))esistenti.push(r)});
+    let aggiunte=0;
+    nuove.forEach(r=>{if(!esistenti.some(e=>normData(e.data)===normData(r.data)&&n(e.kwh)===n(r.kwh))){esistenti.push(r);aggiunte++}});
     b.ricariche=esistenti;
     ricalcolaBim(b);
-    msg.push(bimLbl(k)+(b.pagato?' (già pagato: verifica!)':''));
+    if(nuovo)logEv('chiuso',`${bimLbl(k)} chiuso: ${b.ricariche.length} ricariche · ${n(b.totKwh).toFixed(2)} kWh · € ${n(b.totImp).toFixed(2)}${b.stima?' (stima, attesa bolletta)':''}`,k);
+    else if(aggiunte)logEv('ricarica',`${plur(aggiunte,'ricarica aggiunta','ricariche aggiunte')} a ${bimLbl(k)} già chiuso → € ${n(b.totImp).toFixed(2)}`,k);
+    const rif=b.pagato?b.pagatoImporto:b.inviato?b.inviatoImporto:undefined;
+    msg.push(bimLbl(k)+(rif!==undefined&&arrot(b.totImp)!==rif?` (già ${b.pagato?'pagato':'inviato'} € ${rif},00, ora € ${arrot(b.totImp)},00: verifica!)`:''));
   });
-  ricAz=ricAz.filter(r=>bimOfRic(r)>=cur);
+  // tolgo SOLO quelle spostate (le ricariche con data illeggibile restano, da correggere)
+  ricAz=ricAz.filter(r=>!vecchie.includes(r));
   bimArch.sort((a,b)=>a.key<b.key?1:-1);
   LS.set('rt_bimarch',bimArch);LS.set('rt_ricaz',ricAz);LS.set('rt_bim_active',cur);
-  setTimeout(()=>showToast('📦 Bimestre chiuso automaticamente: '+msg.join(', '),true),300);
+  if(!silenzioso)setTimeout(()=>showToast('📦 '+plur(vecchie.length,'ricarica spostata','ricariche spostate')+' nel bimestre di competenza: '+msg.join(', '),true),300);
 }
+// importo da rimborsare arrotondato all'euro superiore (r2 prima: evita 3.0000001 → 4)
+function arrot(v){return Math.ceil(r2(n(v)))}
+// stato di un bimestre chiuso: 'stima' | 'dainviare' | 'inviato' | 'pagato'
+function statoBim(b){return b.pagato?'pagato':b.inviato?'inviato':b.stima?'stima':'dainviare'}
 // ricalcola kWh e importo di un bimestre archiviato dalle sue ricariche
 function ricalcolaBim(b){
   const cK=n(b.costoKwh);
@@ -607,6 +680,7 @@ function saveKwh(){
   if(v){map[k]=v}else{delete map[k]}
   LS.set('rt_coeff_bim',map);
   if(v){costoKwh=String(v);LS.set('rt_kwh',costoKwh);LS.set('rt_kwh_from',k)}
+  logEv('coeff',`Coefficiente aziendale ${bimLbl(k)} impostato a mano: ${v?'€ '+v.toFixed(5)+'/kWh':'rimosso'}`,k);
   closeMo('mo-kwh');render();
 }
 function saveLuoghi(){
@@ -850,59 +924,82 @@ function saveFinal(){
   LS.set('rt_hist',hist);
   cycle={cruscotto:null,scontrino:null,ricCasa:null,ricLav:null};
   LS.set('rt_cycle',cycle);
-  sw('storico');
+  logEv('ciclo',`Ciclo salvato ${fd(hist[0].data)} · benzina € ${n(hist[0].costoBenz).toFixed(2)} · casa € ${n(costoEC).toFixed(2)} · lavoro € ${n(hist[0].rimborso).toFixed(2)}`);
+  stTab='cicli';sw('storico');
 }
 
 // ══════════════════════════════════════════════════════════════════════════════
 // RIMBORSO TAB
 // ══════════════════════════════════════════════════════════════════════════════
+function bimByKey(k){return bimArch.find(b=>b.key===k)||null}
+// ricariche che non stanno in nessun bimestre (data illeggibile o nel futuro): vanno corrette
+function ricDaCorreggere(){const cur=curBim();return ricAz.filter(r=>{const k=bimOfRic(r);return !k||k>cur})}
+// cose da fare sui rimborsi (stesse regole per il riquadro "Da fare" e per il pallino sul tab)
+function daFareRimborso(){
+  const out={invia:[],attesaPag:[],bolletta:[],cambiati:[],correggi:ricDaCorreggere()};
+  bimArch.forEach(b=>{
+    const s=statoBim(b);
+    if(s==='dainviare'&&n(b.totImp)>0)out.invia.push(b);
+    if(s==='inviato')out.attesaPag.push(b);
+    if(s==='stima'&&n(b.totImp)>0)out.bolletta.push(b);
+    if((s==='inviato'&&b.inviatoImporto!==undefined&&arrot(b.totImp)!==b.inviatoImporto)||
+       (s==='pagato'&&b.pagatoImporto!==undefined&&arrot(b.totImp)!==b.pagatoImporto))out.cambiati.push(b);
+  });
+  return out;
+}
+let bimOpen={};
+function toggleBimD(k){bimOpen[k]=!bimOpen[k];render()}
+const BTN_LINK="background:none;border:none;color:var(--mu);font-size:11px;text-decoration:underline;cursor:pointer;padding:6px 4px";
+
 function rRimborso(){
   const curK=curBim();
   const ci=coeffInfo(curK);
   const cK=ci.v;
   const ricCur=ricAz.filter(r=>bimOfRic(r)===curK);
   const totKwh=ricCur.reduce((s,r)=>s+n(r.kwh),0);
-  const totImp=totKwh*cK;
-  const rounded=Math.ceil(totImp);
+  const totImp=r2(totKwh*cK);
+  const rounded=arrot(totImp);
+  const df=daFareRimborso();
   let h='';
 
-  // Bimestri chiusi ancora senza la loro bolletta / da pagare
-  const inAttesa=bimArch.filter(b=>b.stima&&!b.pagato);
-  const daPagare=bimArch.filter(b=>!b.pagato);
+  // Ricariche con data non valida: mai più invisibili
+  if(df.correggi.length){
+    h+=`<div style="background:rgba(239,68,68,.08);border:1px solid var(--r);border-radius:8px;padding:10px 14px;margin-bottom:10px;font-size:12px">
+      <div style="margin-bottom:6px">⚠️ <strong>${plur(df.correggi.length,'ricarica','ricariche')} con data da correggere</strong><br/><span style="color:var(--mu)">Non rientrano in nessun bimestre finché non imposti la data giusta.</span></div>
+      ${df.correggi.map(r=>`<div style="display:flex;align-items:center;gap:8px;padding:6px 0;border-top:1px solid var(--bd)">
+        <span style="flex:1">${n(r.kwh).toFixed(2)} kWh · <span style="color:var(--r)">${es(String(r.data||'senza data'))}</span></span>
+        <input type="date" max="${td()}" onchange="fixDataRic(${r.id},this.value)" style="background:var(--bg3);border:1px solid var(--bd);border-radius:4px;padding:6px;color:var(--tx);color-scheme:dark;font-size:13px"/>
+        <button class="delbtn" onclick="delRic(${r.id})">✕</button>
+      </div>`).join('')}</div>`;
+  }
 
-  // Header bimestre corrente (aperto automaticamente dalla data di oggi)
-  h+=`<div style="background:var(--bg2);border:1px solid var(--g);border-radius:8px;padding:12px 14px;margin-bottom:10px;display:flex;align-items:center;justify-content:space-between">
-    <div><div style="font-size:9px;letter-spacing:3px;text-transform:uppercase;color:var(--g)">Bimestre di competenza</div>
+  // Bimestre di competenza (aperto in automatico dalla data di oggi)
+  h+=`<div style="background:var(--bg2);border:1px solid var(--g);border-radius:8px;padding:12px 14px;margin-bottom:10px">
+    <div style="font-size:9px;letter-spacing:3px;text-transform:uppercase;color:var(--g)">Bimestre in corso</div>
     <div style="font-family:'Barlow Condensed',sans-serif;font-size:20px;font-weight:900">${bimLbl(curK)}</div>
-    <div style="font-size:10px;color:var(--mu)">Aperto in automatico · si chiude da solo a fine bimestre</div></div>
-    ${bimArch.length>0?`<button class="btn bgh bsm" onclick="toggleArchSec()">📦 Archivio (${bimArch.length})${daPagare.length?`<br/><span style="color:var(--o)">${daPagare.length} da pagare</span>`:''}</button>`:''}
+    <div style="font-size:10px;color:var(--mu)">Si apre e si chiude da solo · i bimestri precedenti sono più in basso</div>
   </div>`;
-  // Promemoria: bimestri pronti da inviare in azienda e invii da sollecitare
-  const pr=promemoriaRimborso();
-  if(pr.pronti.length){
-    h+=`<div style="background:rgba(34,197,94,.08);border:1px solid var(--g);border-radius:8px;padding:10px 14px;margin-bottom:10px;font-size:12px">
-      <div style="margin-bottom:6px">📤 <strong>Pronti da inviare in azienda</strong> <span style="color:var(--mu)">· bolletta caricata, importo definitivo</span></div>
-      ${pr.pronti.map(({b,i})=>`<div style="display:flex;align-items:center;gap:8px;padding:6px 0;border-top:1px solid var(--bd)">
-        <span style="flex:1">${es(b.label)} · <strong>€ ${Math.ceil(n(b.totImp))},00</strong></span>
-        <button class="btn bgh bsm" onclick="doPrint('rimborso',${i})">⬇️ PDF</button>
-        <button class="btn bg bsm" onclick="segnaInviato(${i})">📤 Inviato</button>
-      </div>`).join('')}</div>`;
-  }
-  if(pr.sollecito.length){
-    h+=`<div style="background:rgba(249,115,22,.08);border:1px solid var(--o);border-radius:8px;padding:10px 14px;margin-bottom:10px;font-size:12px">
-      <div style="margin-bottom:6px">⏰ <strong>Inviati ma non ancora pagati</strong></div>
-      ${pr.sollecito.map(({b,i})=>`<div style="display:flex;align-items:center;gap:8px;padding:6px 0;border-top:1px solid var(--bd)">
-        <span style="flex:1">${es(b.label)} · € ${Math.ceil(n(b.totImp))},00 · <span style="color:var(--o)">inviato ${giorniDa(b.inviato)} giorni fa</span></span>
-        <button class="btn bg bsm" onclick="openPagMo(${i})">✓ Pagato</button>
-      </div>`).join('')}</div>`;
-  }
-  if(inAttesa.length){
-    h+=`<div style="background:rgba(249,115,22,.08);border:1px solid var(--o);border-radius:8px;padding:10px 14px;margin-bottom:10px;font-size:12px;cursor:pointer" onclick="sw('bolletta')">
-      ⏳ In attesa di bolletta: <strong>${inAttesa.map(b=>es(b.label)).join(', ')}</strong><br/>
-      <span style="color:var(--mu)">Importo calcolato con il coefficiente stimato. Caricando la bolletta si aggiorna da solo →</span></div>`;
+
+  // Da fare
+  const righe=[];
+  df.cambiati.forEach(b=>righe.push(`<div style="display:flex;align-items:center;gap:8px;padding:7px 0;border-top:1px solid var(--bd)">
+    <span style="flex:1">⚠️ <strong>${es(b.label)}</strong>: importo cambiato dopo ${b.pagato?'il pagamento':"l'invio"} (era € ${b.pagato?b.pagatoImporto:b.inviatoImporto},00, ora € ${arrot(b.totImp)},00)</span>
+    <button class="btn bgh bsm" onclick="apriInvio('${b.key}')">📄 Nuovo report</button></div>`));
+  df.invia.forEach(b=>righe.push(`<div style="display:flex;align-items:center;gap:8px;padding:7px 0;border-top:1px solid var(--bd)">
+    <span style="flex:1">📤 <strong>${es(b.label)}</strong> · € ${arrot(b.totImp)},00 · pronto da inviare</span>
+    <button class="btn bg bsm" onclick="apriInvio('${b.key}')">📤 Invia</button></div>`));
+  df.attesaPag.forEach(b=>{const g=giorniDa(b.inviato);righe.push(`<div style="display:flex;align-items:center;gap:8px;padding:7px 0;border-top:1px solid var(--bd)">
+    <span style="flex:1">⏳ <strong>${es(b.label)}</strong> · € ${b.inviatoImporto??arrot(b.totImp)},00 · inviato il ${fd(b.inviato)} <span style="color:${g>=GIORNI_SOLLECITO?'var(--r)':'var(--mu)'}">(${g} gg${g>=GIORNI_SOLLECITO?', sollecita':''})</span></span>
+    <button class="btn bg bsm" onclick="openPagMo('${b.key}')">✓ Pagato</button></div>`)});
+  df.bolletta.forEach(b=>righe.push(`<div style="display:flex;align-items:center;gap:8px;padding:7px 0;border-top:1px solid var(--bd)">
+    <span style="flex:1">🧾 <strong>${es(b.label)}</strong> · € ${arrot(b.totImp)},00 stimato · manca la bolletta</span>
+    <button class="btn bgh bsm" onclick="sw('bolletta')">Carica</button></div>`));
+  if(righe.length){
+    h+=`<div style="background:rgba(249,115,22,.06);border:1px solid var(--o);border-radius:8px;padding:10px 14px;margin-bottom:10px;font-size:12px">
+      <div style="font-size:9px;letter-spacing:2px;text-transform:uppercase;color:var(--o);margin-bottom:2px">Da fare</div>${righe.join('')}</div>`;
   }
 
-  // 4 stat boxes
+  // 4 stat boxes del bimestre in corso
   h+=`<div class="sg4">
     <div class="sc"><div class="slbl">Ricariche</div><div class="sval">${ricCur.length}</div></div>
     <div class="sc"><div class="slbl">Totale kWh</div><div class="sval">${totKwh.toFixed(1)}</div></div>
@@ -911,13 +1008,13 @@ function rRimborso(){
       <div class="ssub">${ci.src==='bolletta'?'📄 da bolletta':ci.src==='stima'?'≈ stima'+(ci.from?' ('+bimLbl(ci.from)+')':''):'nessuna bolletta'} · <span style="color:var(--g);cursor:pointer;text-decoration:underline" onclick="openMo('mo-kwh')">modifica</span></div>
     </div>
     <div class="sc" style="background:${cK&&totKwh>0?'rgba(34,197,94,.08)':'var(--bg2)'};border-color:${cK&&totKwh>0?'var(--g)':'var(--bd)'}">
-      <div class="slbl">Da Rimborsare</div>
+      <div class="slbl">Maturato finora</div>
       <div style="font-family:'Barlow Condensed',sans-serif;font-size:${totImp>=100?'30px':'38px'};font-weight:900;color:${cK?'var(--g)':'var(--mu)'};line-height:1;margin-top:4px">${cK||totKwh===0?'€ '+totImp.toFixed(2):'—'}</div>
-      ${cK&&totKwh>0?`<div class="ssub" style="color:var(--g)">≈ € ${rounded},00 arrotondato${ci.src==='stima'?' · provvisorio':''}</div>`:''}
+      ${cK&&totKwh>0?`<div class="ssub" style="color:var(--g)">≈ € ${rounded},00 · provvisorio fino a fine bimestre</div>`:''}
     </div>
   </div>`;
 
-  // Bolletta del bimestre
+  // Bolletta del bimestre in corso
   const bCur=bollForBim(curK);
   if(bCur){
     h+=`<div style="background:var(--bg2);border:1px solid var(--bd);border-radius:8px;padding:12px 14px;margin-bottom:12px;display:flex;align-items:center;gap:10px">
@@ -927,170 +1024,211 @@ function rRimborso(){
       <div style="text-align:right;flex-shrink:0"><div style="font-family:'Barlow Condensed',sans-serif;font-size:16px;font-weight:700;color:var(--g)">€ ${n(bCur.coefficiente).toFixed(5)}</div>
       <div style="font-size:9px;color:var(--mu)">/kWh</div></div>
     </div>`;
-  } else {
-    h+=`<div style="background:rgba(249,115,22,.06);border:1px solid var(--bd);border-radius:8px;padding:12px 14px;margin-bottom:12px;cursor:pointer" onclick="sw('bolletta')">
-      <div style="font-size:10px;text-transform:uppercase;letter-spacing:2px;color:var(--mu)">Bolletta di ${es(bimLbl(curK))} non ancora disponibile</div>
-      <div style="font-size:12px;color:var(--o);margin-top:2px">${cK?'Uso il coefficiente stimato finché non la carichi':'Carica una bolletta per calcolare il rimborso'} →</div>
-    </div>`;
   }
 
   // Azioni
   h+=`<div class="brow" style="margin-bottom:14px">
-    <button class="btn bg bsm" onclick="openMo('mo-ric')">➕ Manuale</button>
+    <button class="btn bg bsm" onclick="openRicPer(null)">➕ Manuale</button>
     <button class="btn bgh bsm" onclick="openFotoAz()">📸 Foto</button>
-    ${ricCur.length>0&&cK>0?`<button class="btn bgh bsm" onclick="doPrint('rimborso',null)">⬇️ PDF</button>`:''}
+    ${ricCur.length>0&&cK>0?`<button class="btn bgh bsm" onclick="apriReport('${curK}')">📄 Report provvisorio</button>`:''}
   </div>`;
 
-  // Lista per mese
-  const byMonth={};
-  ricCur.forEach(r=>{const mk=(r.data||'').substring(0,7);if(!byMonth[mk])byMonth[mk]=[];byMonth[mk].push(r)});
-  const months=Object.keys(byMonth).sort().reverse();
-
+  // Ricariche del bimestre in corso, per mese
   if(ricCur.length===0){
     h+=`<div class="empty">Nessuna ricarica per ${bimLbl(curK)}.<br/>Aggiungi con ➕ o 📸</div>`;
   } else {
-    months.forEach(m=>{
-      const rows=byMonth[m].sort((a,b)=>a.data>b.data?1:-1);
-      const mKwh=rows.reduce((s,r)=>s+n(r.kwh),0);
-      const mImp=r2(mKwh*cK);
-      const [y,mo]=m.split('-');
-      const mLbl=new Date(parseInt(y),parseInt(mo)-1,1).toLocaleDateString('it-IT',{month:'long',year:'numeric'});
-      h+=`<div style="background:var(--bg2);border:1px solid var(--bd);border-radius:8px;overflow:hidden;margin-bottom:12px">
-        <div style="display:flex;align-items:center;justify-content:space-between;padding:10px 14px;border-bottom:1px solid var(--bd);background:var(--bg3)">
-          <div><div style="font-family:'Barlow Condensed',sans-serif;font-size:14px;font-weight:700;text-transform:uppercase">${mLbl}</div>
-          <div style="font-size:10px;color:var(--mu)">${rows.length} ricariche · ${mKwh.toFixed(2)} kWh</div></div>
-          <div style="font-family:'Barlow Condensed',sans-serif;font-size:22px;font-weight:700;color:var(--g)">${cK?'€ '+mImp.toFixed(2):'—'}</div>
-        </div>`;
-      rows.forEach(r=>{
-        h+=`<div class="rcrow">
-          <span class="rcdt">${fd(r.data)}</span>
-          <span class="rckw">${n(r.kwh).toFixed(2)} kWh</span>
-          ${r.note?`<span style="font-size:10px;color:var(--mu);flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${es(r.note)}</span>`:'<span style="flex:1"></span>'}
-          <span class="rcimp">${cK?`<strong>€ ${r2(n(r.kwh)*cK).toFixed(2)}</strong>`:''}</span>
-          <button class="delbtn" onclick="delRic(${r.id})">✕</button>
-        </div>`;
-      });
-      h+='</div>';
-    });
-    h+=`<button class="btn bgh" style="margin-top:4px" onclick="svuotaBim()">🗑️ Svuota bimestre</button>`;
+    h+=rListaRicariche(ricCur,cK,null);
+    h+=`<button class="btn bgh" style="margin-top:4px" onclick="svuotaBim()">🗑️ Svuota bimestre in corso</button>`;
   }
 
-  // Archivio bimestri
-  h+=`<div id="arch-sec" style="display:none;margin-top:16px">
-    <div class="seclbl">📦 Storico Rimborsi</div>`;
-  bimArch.forEach((b,i)=>{
-    const pagato=!!b.pagato;
-    const bc=pagato?'var(--g)':'rgba(249,115,22,.5)';
-    const badge=(pagato?`<span class="badge-pagato">✓ PAGATO ${fd(b.dataPag)}</span>`:b.inviato?`<span class="badge-attesa">📤 INVIATO ${fd(b.inviato)}</span>`:`<span class="badge-attesa">⏳ DA PAGARE</span>`)
-      +(b.stima?` <span class="badge-attesa" style="background:rgba(85,85,85,.25);color:var(--tx)">≈ STIMA · attesa bolletta</span>`:'');
-    h+=`<div class="bcard" style="border:1px solid ${bc}">
-      <div class="bcard-hdr" onclick="toggleBimD(${i})">
-        <div><div style="font-family:'Barlow Condensed',sans-serif;font-size:18px;font-weight:900">${es(b.label)}</div>
-        <div style="margin-top:4px">${badge}</div></div>
-        <div style="text-align:right">
-          <div style="font-family:'Barlow Condensed',sans-serif;font-size:28px;font-weight:900;color:${pagato?'var(--g)':'var(--o)'}">€ ${Math.ceil(n(b.totImp))},00</div>
-          <div style="font-size:10px;color:var(--mu)">${n(b.totKwh).toFixed(2)} kWh · esatto € ${n(b.totImp).toFixed(2)}</div>
-        </div>
-      </div>
-      <div class="bcard-detail" id="bd-${i}">
-        ${b.bolletta?`<div style="background:var(--bg3);border-radius:6px;padding:10px;margin-bottom:10px;font-size:12px">
-          <div style="color:var(--mu);font-size:9px;letter-spacing:2px;text-transform:uppercase;margin-bottom:4px">Bolletta</div>
-          <div>N. ${es(b.bolletta.numero||'—')} · ${es(b.bolletta.periodo||'—')}</div>
-          <div style="color:var(--g)">Coeff. € ${n(b.bolletta.coefficiente).toFixed(5)}/kWh</div>
-        </div>`:''}
-        ${rBimDettaglio(b,i)}
-        <div style="background:${pagato?'rgba(34,197,94,.08)':'rgba(249,115,22,.08)'};border:1px solid ${pagato?'var(--g)':'var(--o)'};border-radius:6px;padding:12px;margin-top:8px">
-          <div style="font-size:9px;letter-spacing:2px;text-transform:uppercase;color:var(--mu);margin-bottom:8px">Riepilogo importi</div>
-          <div style="display:flex;justify-content:space-between;padding:5px 0;border-bottom:1px solid var(--bd);font-size:12px"><span style="color:var(--mu)">Importo tecnico esatto</span><span style="font-family:'Barlow Condensed',sans-serif;font-size:17px;font-weight:700">€ ${n(b.totImp).toFixed(2)}</span></div>
-          <div style="display:flex;justify-content:space-between;padding:5px 0;border-bottom:1px solid var(--bd);font-size:12px"><span style="color:var(--mu)">Arrotondamento</span><span style="font-family:'Barlow Condensed',sans-serif;font-size:17px;font-weight:700;color:var(--mu)">+ € ${(Math.ceil(n(b.totImp))-n(b.totImp)).toFixed(2)}</span></div>
-          <div style="display:flex;justify-content:space-between;padding:7px 0 0;font-size:12px"><span style="font-weight:700;color:${pagato?'var(--g)':'var(--o)'}">Da pagare</span><span style="font-family:'Barlow Condensed',sans-serif;font-size:30px;font-weight:900;color:${pagato?'var(--g)':'var(--o)'}">€ ${Math.ceil(n(b.totImp))},00</span></div>
-        </div>
-        <div class="brow" style="margin-top:12px">
-          <button class="btn bgh bsm" onclick="doPrint('rimborso',${i})">⬇️ PDF Rimborso</button>
-          ${!pagato?(b.inviato?`<button class="btn bgh bsm" onclick="annullaInvio(${i})">↩️ Non inviato</button>`:`<button class="btn bgh bsm" onclick="segnaInviato(${i})">📤 Segna inviato</button>`):''}
-          ${!pagato?`<button class="btn bg bsm" onclick="openPagMo(${i})">✓ Segna pagato</button>`:`<div class="brow"><button class="btn bgh bsm" onclick="doPrint('ricevuta',${i})">🧾 PDF Ricevuta</button><button class="btn bsm" style="border:1px solid var(--r);color:var(--r);background:transparent;padding:8px 14px;font-family:'Barlow Condensed',sans-serif;font-size:11px;font-weight:700;letter-spacing:2px;text-transform:uppercase;border-radius:5px;cursor:pointer" onclick="annullaPag(${i})">↩️ Annulla</button></div>`}
-          <button class="delbtn" onclick="delBim(${i})">✕</button>
-        </div>
-      </div>
-    </div>`;
-  });
-  h+='</div>';
+  // Tutti i bimestri chiusi, sempre visibili
+  h+=rListaBimestri(curK);
   return h;
 }
 
-function rBimDettaglio(b,bi){
-  const cK=n(b.costoKwh);
-  const byM={};
-  (b.ricariche||[]).forEach(r=>{const k=(r.data||'').substring(0,7);if(!byM[k])byM[k]=[];byM[k].push(r)});
-  return Object.keys(byM).sort().map(m=>{
-    const rows=byM[m].sort((a,b)=>a.data>b.data?1:-1);
+// ricariche raggruppate per mese; key = bimestre archiviato (per eliminare da lì) o null = bimestre in corso
+function rListaRicariche(lista,cK,key){
+  const byMonth={};
+  lista.forEach(r=>{const mk=(normData(r.data)||'').substring(0,7);(byMonth[mk]=byMonth[mk]||[]).push(r)});
+  return Object.keys(byMonth).sort().reverse().map(m=>{
+    const rows=byMonth[m].sort((a,b)=>String(a.data)>String(b.data)?1:-1);
     const mKwh=rows.reduce((s,r)=>s+n(r.kwh),0);
-    const [y,mo]=m.split('-');
-    const mLbl=new Date(parseInt(y),parseInt(mo)-1,1).toLocaleDateString('it-IT',{month:'long',year:'numeric'});
-    return`<div style="margin-bottom:8px">
-      <div style="font-size:10px;font-weight:700;color:var(--mu);text-transform:uppercase;letter-spacing:1px;margin-bottom:4px">${mLbl}</div>
-      ${rows.map(r=>`<div style="display:flex;justify-content:space-between;font-size:12px;padding:4px 0;border-bottom:1px solid var(--bd)">
-        <span style="color:var(--mu)">${fd(r.data)}</span>
-        <span style="color:var(--g);font-weight:600">${n(r.kwh).toFixed(2)} kWh</span>
-        <span>${cK>0?'€ '+r2(n(r.kwh)*cK).toFixed(2):'—'}</span>
-        ${bi!==undefined&&r.id!==undefined?`<button class="delbtn" onclick="delRicArch(${bi},${r.id})">✕</button>`:''}
-      </div>`).join('')}
-      <div style="display:flex;justify-content:space-between;font-size:12px;padding:5px 0;font-weight:700">
-        <span>Tot. ${mLbl.split(' ')[0]}</span><span style="color:var(--g)">${mKwh.toFixed(2)} kWh</span><span>${cK>0?'€ '+r2(mKwh*cK).toFixed(2):'—'}</span>
+    return`<div style="background:var(--bg2);border:1px solid var(--bd);border-radius:8px;overflow:hidden;margin-bottom:10px">
+      <div style="display:flex;align-items:center;justify-content:space-between;padding:8px 12px;border-bottom:1px solid var(--bd);background:var(--bg3)">
+        <div><div style="font-family:'Barlow Condensed',sans-serif;font-size:14px;font-weight:700;text-transform:uppercase">${meseLbl(m,true)}</div>
+        <div style="font-size:10px;color:var(--mu)">${rows.length} ricariche · ${mKwh.toFixed(2)} kWh</div></div>
+        <div style="font-family:'Barlow Condensed',sans-serif;font-size:20px;font-weight:700;color:var(--g)">${cK?'€ '+r2(mKwh*cK).toFixed(2):'—'}</div>
       </div>
-    </div>`;
+      ${rows.map(r=>`<div class="rcrow">
+        <span class="rcdt">${fd(r.data)}</span>
+        <span class="rckw">${n(r.kwh).toFixed(2)} kWh</span>
+        ${r.note?`<span style="font-size:10px;color:var(--mu);flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${es(r.note)}</span>`:'<span style="flex:1"></span>'}
+        <span class="rcimp">${cK?`<strong>€ ${r2(n(r.kwh)*cK).toFixed(2)}</strong>`:''}</span>
+        <button class="delbtn" onclick="${key?`delRicArch('${key}',${r.id})`:`delRic(${r.id})`}">✕</button>
+      </div>`).join('')}</div>`;
   }).join('');
 }
 
-function toggleBimD(i){
-  const el=document.getElementById('bd-'+i);
-  if(!el)return;
-  el.classList.toggle('open');
+const STATO_UI={
+  stima:{c:'#888',bg:'rgba(85,85,85,.2)',t:'≈ ATTESA BOLLETTA'},
+  dainviare:{c:'var(--o)',bg:'rgba(249,115,22,.15)',t:'📤 DA INVIARE'},
+  inviato:{c:'var(--b)',bg:'rgba(59,130,246,.15)',t:'⏳ INVIATO'},
+  pagato:{c:'var(--g)',bg:'rgba(34,197,94,.15)',t:'✓ PAGATO'}
+};
+function rListaBimestri(curK){
+  // bimestri chiusi + bimestri passati che hanno solo la bolletta (nessuna ricarica registrata)
+  const keys=new Set(bimArch.map(b=>b.key));
+  Object.keys(LS.get('rt_coeff_bim',{})).forEach(k=>{if(k<curK)keys.add(k)});
+  const lista=[...keys].filter(Boolean).sort().reverse();
+  if(!lista.length)return'';
+  let h=`<div class="seclbl" style="margin-top:18px">📋 Bimestri precedenti</div>`;
+  lista.forEach(k=>{
+    const b=bimByKey(k);
+    if(!b){ // solo bolletta
+      const ci=coeffInfo(k);
+      h+=`<div class="bcard" style="border:1px solid var(--bd)">
+        <div class="bcard-hdr" style="cursor:default">
+          <div><div style="font-family:'Barlow Condensed',sans-serif;font-size:18px;font-weight:900">${es(bimLbl(k))}</div>
+          <div style="font-size:11px;color:var(--mu);margin-top:4px">Bolletta caricata (€ ${ci.v.toFixed(5)}/kWh) · nessuna ricarica registrata</div></div>
+          <div style="font-family:'Barlow Condensed',sans-serif;font-size:24px;font-weight:900;color:var(--mu)">€ 0</div>
+        </div>
+        <div style="padding:0 14px 12px;font-size:11px;color:var(--mu)">Se in questo periodo hai ricaricato al lavoro, aggiungi le ricariche con la data giusta: finiscono qui da sole.
+          <div class="brow" style="margin-top:8px"><button class="btn bg bsm" onclick="openRicPer('${k}')">➕ Aggiungi ricarica</button></div></div>
+      </div>`;
+      return;
+    }
+    const s=statoBim(b),ui=STATO_UI[s],imp=arrot(b.totImp),aperto=!!bimOpen[k];
+    const zero=!(n(b.totImp)>0);
+    const chip=`<span style="background:${ui.bg};color:${ui.c};font-size:10px;padding:3px 8px;border-radius:4px;font-weight:700">${zero&&s!=='pagato'?'NESSUN RIMBORSO':ui.t}${s==='inviato'?' '+fd(b.inviato):s==='pagato'?' '+fd(b.dataPag):''}</span>`;
+    const avvisoImp=(s==='inviato'&&b.inviatoImporto!==undefined&&imp!==b.inviatoImporto)?`inviato € ${b.inviatoImporto},00`:
+                    (s==='pagato'&&b.pagatoImporto!==undefined&&imp!==b.pagatoImporto)?`pagato € ${b.pagatoImporto},00`:'';
+    // azioni sempre visibili, in base allo stato
+    let az='';
+    if(s==='stima')az=`<button class="btn bgh bsm" onclick="sw('bolletta')">🧾 Carica bolletta</button><button class="btn bgh bsm" onclick="apriReport('${k}')">📄 Report provvisorio</button>`;
+    else if(s==='dainviare')az=zero?'':`<button class="btn bg bsm" onclick="apriInvio('${k}')">📤 Prepara e invia report</button>`;
+    else if(s==='inviato')az=`${b.docInvio?`<button class="btn bgh bsm" onclick="apriDoc(${b.docInvio})">📄 Report inviato</button>`:''}<button class="btn bg bsm" onclick="openPagMo('${k}')">✓ Segna pagato</button>`;
+    else az=`${b.docRicevuta?`<button class="btn bgh bsm" onclick="apriDoc(${b.docRicevuta})">🧾 Ricevuta</button>`:`<button class="btn bgh bsm" onclick="apriRicevuta('${k}')">🧾 Ricevuta</button>`}${b.docInvio?`<button class="btn bgh bsm" onclick="apriDoc(${b.docInvio})">📄 Report</button>`:''}`;
+    const docsBim=documenti.filter(d=>d.bim===k);
+    h+=`<div class="bcard" style="border:1px solid ${s==='pagato'?'var(--g)':s==='inviato'?'rgba(59,130,246,.5)':s==='dainviare'&&!zero?'rgba(249,115,22,.5)':'var(--bd)'}">
+      <div class="bcard-hdr" onclick="toggleBimD('${k}')">
+        <div><div style="font-family:'Barlow Condensed',sans-serif;font-size:18px;font-weight:900">${es(b.label)} <span style="font-size:12px;color:var(--mu)">${aperto?'▲':'▼'}</span></div>
+        <div style="margin-top:4px">${chip}</div>
+        <div style="font-size:10px;color:var(--mu);margin-top:5px">${(b.ricariche||[]).length} ricariche · ${n(b.totKwh).toFixed(2)} kWh · € ${n(b.costoKwh).toFixed(5)}/kWh ${b.stima?'(stima)':'(bolletta)'}</div></div>
+        <div style="text-align:right">
+          <div style="font-family:'Barlow Condensed',sans-serif;font-size:28px;font-weight:900;color:${s==='pagato'?'var(--g)':zero?'var(--mu)':'var(--o)'}">€ ${imp},00</div>
+          <div style="font-size:10px;color:var(--mu)">esatto € ${n(b.totImp).toFixed(2)}</div>
+        </div>
+      </div>
+      ${avvisoImp?`<div style="margin:0 14px 8px;padding:8px 10px;border:1px solid var(--r);border-radius:6px;font-size:11px;color:#fca5a5">⚠️ Importo cambiato: ${avvisoImp}, ora € ${imp},00 (ricariche o bolletta modificate dopo). <span style="text-decoration:underline;cursor:pointer" onclick="apriInvio('${k}')">Genera nuovo report</span></div>`:''}
+      ${az?`<div class="brow" style="padding:0 14px 12px">${az}</div>`:''}
+      ${aperto?`<div style="border-top:1px solid var(--bd);padding:14px">
+        ${b.bolletta?`<div style="background:var(--bg3);border-radius:6px;padding:10px;margin-bottom:10px;font-size:12px">
+          <div style="color:var(--mu);font-size:9px;letter-spacing:2px;text-transform:uppercase;margin-bottom:4px">Bolletta</div>
+          <div>N. ${es(b.bolletta.numero||'—')} · ${es(b.bolletta.periodo||'—')}</div>
+          <div style="color:var(--g)">Coeff. € ${n(b.bolletta.coefficiente).toFixed(5)}/kWh</div></div>`:''}
+        ${(b.ricariche||[]).length?rListaRicariche(b.ricariche,n(b.costoKwh),k):'<div style="font-size:12px;color:var(--mu);margin-bottom:10px">Nessuna ricarica.</div>'}
+        ${docsBim.length?`<div style="font-size:9px;letter-spacing:2px;text-transform:uppercase;color:var(--mu);margin:10px 0 6px">Documenti generati</div>
+          ${docsBim.map(d=>`<div style="display:flex;align-items:center;gap:8px;padding:6px 0;border-bottom:1px solid var(--bd);font-size:12px;cursor:pointer" onclick="apriDoc(${d.id})">
+            <span>${d.tipo==='ricevuta'?'🧾':'📄'}</span><span style="flex:1">${d.tipo==='ricevuta'?'Ricevuta':'Report'}${d.provvisorio?' provvisorio':''} · € ${d.importo},00</span><span style="color:var(--mu);font-size:10px">${fdt(d.creato)}</span></div>`).join('')}`:''}
+        <div class="brow" style="margin-top:12px;align-items:center">
+          <button class="btn bgh bsm" onclick="openRicPer('${k}')">➕ Ricarica dimenticata</button>
+          ${s==='inviato'?`<button style="${BTN_LINK}" onclick="annullaInvio('${k}')">↩️ annulla invio</button>`:''}
+          ${s==='pagato'?`<button style="${BTN_LINK}" onclick="annullaPag('${k}')">↩️ annulla pagamento</button>`:''}
+          <button style="${BTN_LINK};color:var(--r)" onclick="delBim('${k}')">elimina bimestre</button>
+        </div>
+      </div>`:''}
+    </div>`;
+  });
+  return h;
 }
-function toggleArchSec(){
-  const el=document.getElementById('arch-sec');
-  if(el)el.style.display=el.style.display==='none'?'block':'none';
+// data e ora brevi da timestamp ISO
+function fdt(iso){try{const d=new Date(iso);return d.toLocaleDateString('it-IT')+' '+d.toLocaleTimeString('it-IT',{hour:'2-digit',minute:'2-digit'})}catch{return''}}
+// apre "aggiungi ricarica" con la data già dentro il bimestre scelto (null = oggi)
+function openRicPer(k){
+  openMo('mo-ric');
+  const e=document.getElementById('ric-data');if(!e)return;
+  e.max=td();
+  if(!k){e.value=td();return}
+  const[y,mm]=bimMonths(k)[1].split('-').map(Number);
+  const ultimo=isoLocale(new Date(y,mm,0));
+  e.value=ultimo<td()?ultimo:td();
 }
 // elimina una singola ricarica da un bimestre chiuso e ricalcola il totale
-function delRicArch(bi,id){
-  const b=bimArch[bi];if(!b)return;
-  askConfirm('Eliminare questa ricarica da '+b.label+'?'+(b.pagato?' Il bimestre risulta già pagato.':''),()=>{
+function delRicArch(k,id){
+  const b=bimByKey(k);if(!b)return;
+  const s=statoBim(b);
+  askConfirm('Eliminare questa ricarica da '+b.label+'?'+(s==='pagato'||s==='inviato'?' Il bimestre risulta già '+(s==='pagato'?'pagato':'inviato')+': l\'importo cambierà.':''),()=>{
     offriAnnulla('Ricarica eliminata da '+b.label,snapDati());
+    const r=(b.ricariche||[]).find(x=>x.id===id);
     b.ricariche=(b.ricariche||[]).filter(r=>r.id!==id);
     ricalcolaBim(b);
-    LS.set('rt_bimarch',bimArch);render();
-    const sec=document.getElementById('arch-sec');if(sec)sec.style.display='block';
-    const d=document.getElementById('bd-'+bi);if(d)d.classList.add('open');
+    LS.set('rt_bimarch',bimArch);
+    if(r)logEv('elimina',`Ricarica ${fd(r.data)} · ${n(r.kwh)} kWh eliminata da ${b.label} → € ${n(b.totImp).toFixed(2)}`,k);
+    bimOpen[k]=true;render();
   });
 }
 
 // ── RICARICHE AZIENDA ─────────────────────────────────────────────────────────
+// id univoco anche per inserimenti nello stesso millisecondo
+function plur(q,uno,molti){return q+' '+(q===1?uno:molti)}
+function nuovoId(){return Date.now()*1000+Math.floor(Math.random()*1000)}
+// data di una ricarica letta dall'AI: normalizzata; se cade nel futuro l'anno è sbagliato → anno precedente
+function dataRicarica(raw){
+  if(raw===undefined||raw===null||String(raw).trim()==='')return td();
+  let v=normData(raw);
+  if(!v)return String(raw); // illeggibile: resta da correggere, non la metto in un bimestre a caso
+  if(v>td()){const p=(+v.slice(0,4)-1)+v.slice(4);if(normData(p)&&p<=td())v=p}
+  return v;
+}
 function saveRicManuale(){
   const kwh=document.getElementById('ric-kwh')?.value.trim();
-  if(!kwh){showToast('Inserisci i kWh',false,true);return}
-  ricAz.push({id:Date.now(),data:document.getElementById('ric-data')?.value||td(),kwh,note:document.getElementById('ric-note')?.value.trim()||''});
-  ricAz.sort((a,b)=>b.data>a.data?1:-1);
-  LS.set('rt_ricaz',ricAz);closeMo('mo-ric');render();
+  if(!(n(kwh)>0)){showToast('Inserisci i kWh',false,true);return}
+  const data=normData(document.getElementById('ric-data')?.value)||td();
+  if(data>td()){showToast('La data è nel futuro',false,true);return}
+  ricAz.push({id:nuovoId(),data,kwh,note:document.getElementById('ric-note')?.value.trim()||'',fonte:'manuale'});
+  ricAz.sort((a,b)=>String(b.data)>String(a.data)?1:-1);
+  LS.set('rt_ricaz',ricAz);closeMo('mo-ric');
+  const k=bimKey(data);
+  logEv('ricarica',`Ricarica ${fd(data)} · ${n(kwh)} kWh (manuale) → ${bimLbl(k)}`);
+  render();
+  if(k===curBim())showToast('✓ Ricarica aggiunta',true);
 }
 function delRic(id){
   const snap=snapDati();
-  ricAz=ricAz.filter(r=>r.id!==id);LS.set('rt_ricaz',ricAz);render();
+  const r=ricAz.find(x=>x.id===id);
+  ricAz=ricAz.filter(r=>r.id!==id);LS.set('rt_ricaz',ricAz);
+  if(r)logEv('elimina',`Ricarica ${fd(r.data)} · ${n(r.kwh)} kWh eliminata`);
+  render();
   offriAnnulla('Ricarica eliminata',snap);
 }
+// correzione della data di una ricarica segnalata come non valida
+function fixDataRic(id,val){
+  const r=ricAz.find(x=>x.id===id);const v=normData(val);
+  if(!r||!v)return;
+  if(v>td()){showToast('La data è nel futuro',false,true);return}
+  r.data=v;LS.set('rt_ricaz',ricAz);
+  logEv('ricarica',`Data corretta: ricarica ${n(r.kwh)} kWh → ${fd(v)}`);
+  render();showToast('✓ Ricarica spostata in '+bimLbl(bimKey(v)),true);
+}
 function svuotaBim(){
-  askConfirm('Svuotare il bimestre corrente?',()=>{
+  askConfirm('Svuotare il bimestre in corso? Elimina tutte le sue ricariche.',()=>{
     const snap=snapDati(),cur=curBim();
     const nRic=ricAz.filter(r=>bimOfRic(r)===cur).length;
     ricAz=ricAz.filter(r=>bimOfRic(r)!==cur);
-    LS.set('rt_ricaz',ricAz);render();
+    LS.set('rt_ricaz',ricAz);
+    logEv('elimina',`${bimLbl(cur)}: svuotato (${nRic} ricariche eliminate)`,cur);
+    render();
     offriAnnulla(nRic+' ricariche eliminate',snap);
   });
 }
-function delBim(i){
-  askConfirm('Eliminare questo bimestre archiviato?',()=>{
-    const snap=snapDati(),lbl=bimArch[i]?.label||'';
-    bimArch.splice(i,1);LS.set('rt_bimarch',bimArch);render();
-    offriAnnulla(lbl+' eliminato',snap);
+function delBim(k){
+  const b=bimByKey(k);if(!b)return;
+  askConfirm('Eliminare '+b.label+' con tutte le sue '+(b.ricariche||[]).length+' ricariche?',()=>{
+    const snap=snapDati();
+    bimArch=bimArch.filter(x=>x.key!==k);LS.set('rt_bimarch',bimArch);
+    logEv('elimina',`${b.label} eliminato (${(b.ricariche||[]).length} ricariche, € ${n(b.totImp).toFixed(2)})`,k);
+    render();
+    offriAnnulla(b.label+' eliminato',snap);
   });
 }
 function openFotoAz(){
@@ -1106,61 +1244,71 @@ function openFotoAz(){
   clone.click();
 }
 
-// ── PAGAMENTO ─────────────────────────────────────────────────────────────────
-function openPagMo(idx){
-  const b=bimArch[idx];if(!b)return;
-  document.getElementById('pag-idx').value=idx;
+// ── INVIO ALL'AZIENDA E PAGAMENTO (per chiave di bimestre, es. "2026-B4") ──
+function giorniDa(d){const v=normData(d);return v?Math.max(0,Math.round((new Date(td()+'T12:00:00')-new Date(v+'T12:00:00'))/86400000)):0}
+const GIORNI_SOLLECITO=30;
+// 📤 Invia: genera il report definitivo, lo mostra e da lì si condivide e si segna inviato
+function apriInvio(k){
+  const b=bimByKey(k);if(!b)return;
+  const vai=()=>{const d=creaDoc('rimborso',k);apriDoc(d.id,'invio')};
+  if(b.stima)askConfirm('La bolletta di '+b.label+' non è ancora caricata: il report userà il coefficiente stimato. Continuare?',vai);
+  else vai();
+}
+function segnaInviato(k,docId){
+  const b=bimByKey(k);if(!b)return;
+  b.inviato=td();b.inviatoImporto=arrot(b.totImp);if(docId)b.docInvio=docId;
+  LS.set('rt_bimarch',bimArch);
+  logEv('inviato',`${b.label}: report inviato all'azienda · € ${b.inviatoImporto},00`,k);
+  closeMo('mo-doc');render();
+  showToast('📤 '+b.label+' inviato · lo trovi in Rimborso › Bimestri precedenti e in Storico › Documenti',true);
+}
+function annullaInvio(k){
+  const b=bimByKey(k);if(!b)return;
+  askConfirm('Annullare l\'invio di '+b.label+'? Tornerà "da inviare".',()=>{
+    delete b.inviato;delete b.inviatoImporto;LS.set('rt_bimarch',bimArch);
+    logEv('annulla',`${b.label}: invio annullato`,k);render();
+  });
+}
+function openPagMo(k){
+  const b=bimByKey(k);if(!b)return;
+  document.getElementById('pag-idx').value=k;
   document.getElementById('pag-data').value=td();
+  document.getElementById('pag-data').max=td();
   document.getElementById('pag-note').value='';
   document.getElementById('pag-lbl').textContent=b.label;
-  document.getElementById('pag-imp').textContent='€ '+Math.ceil(n(b.totImp))+',00';
+  document.getElementById('pag-imp').textContent='€ '+arrot(b.totImp)+',00';
   openMo('mo-pag');
 }
 function salvaPag(){
-  const idx=parseInt(document.getElementById('pag-idx').value);
-  const data=document.getElementById('pag-data').value;
+  const k=document.getElementById('pag-idx').value;
+  const b=bimByKey(k);if(!b)return;
+  const data=normData(document.getElementById('pag-data').value);
   if(!data){showToast('Inserisci la data',false,true);return}
-  bimArch[idx].pagato=true;
-  bimArch[idx].dataPag=data;
-  bimArch[idx].notePag=document.getElementById('pag-note').value.trim();
+  b.pagato=true;b.dataPag=data;b.pagatoImporto=arrot(b.totImp);
+  b.notePag=document.getElementById('pag-note').value.trim();
+  if(!b.inviato){b.inviato=data;b.inviatoImporto=b.pagatoImporto} // pagato senza invio registrato
   LS.set('rt_bimarch',bimArch);
-  closeMo('mo-pag');render();
-  setTimeout(()=>doPrint('ricevuta',idx),400);
+  logEv('pagato',`${b.label}: pagato il ${fd(data)} · € ${b.pagatoImporto},00${b.notePag?' · '+b.notePag:''}`,k);
+  closeMo('mo-pag');
+  const d=creaDoc('ricevuta',k);
+  b.docRicevuta=d.id;LS.set('rt_bimarch',bimArch);
+  render();apriDoc(d.id);
 }
-// ── INVIO ALL'AZIENDA E PROMEMORIA ──
-function giorniDa(d){return d?Math.floor((new Date(td()+'T12:00:00')-new Date(d+'T12:00:00'))/86400000):0}
-const GIORNI_SOLLECITO=30;
-function promemoriaRimborso(){
-  const pronti=[],sollecito=[];
-  bimArch.forEach((b,i)=>{
-    if(b.pagato||!(n(b.totImp)>0))return;
-    if(!b.inviato&&!b.stima)pronti.push({b,i});
-    else if(b.inviato&&giorniDa(b.inviato)>=GIORNI_SOLLECITO)sollecito.push({b,i});
+function apriRicevuta(k){const d=creaDoc('ricevuta',k);const b=bimByKey(k);if(b){b.docRicevuta=d.id;LS.set('rt_bimarch',bimArch)}apriDoc(d.id)}
+function annullaPag(k){
+  const b=bimByKey(k);if(!b)return;
+  askConfirm('Annullare il pagamento di '+b.label+'?',()=>{
+    b.pagato=false;delete b.dataPag;delete b.notePag;delete b.pagatoImporto;delete b.docRicevuta;
+    LS.set('rt_bimarch',bimArch);
+    logEv('annulla',`${b.label}: pagamento annullato`,k);render();
   });
-  return{pronti,sollecito};
-}
-function segnaInviato(i){
-  const b=bimArch[i];if(!b)return;
-  b.inviato=td();LS.set('rt_bimarch',bimArch);render();
-  showToast('📤 '+b.label+' segnato come inviato · ti avviso se dopo '+GIORNI_SOLLECITO+' giorni non risulta pagato',true);
-}
-function annullaInvio(i){
-  const b=bimArch[i];if(!b)return;
-  delete b.inviato;LS.set('rt_bimarch',bimArch);render();
 }
 // pallino sul tab Rimborso con il numero di cose da fare
 function aggiornaBadgeRimborso(){
   const el=document.getElementById('tb-rimborso');if(!el)return;
-  const pr=promemoriaRimborso(),nAz=pr.pronti.length+pr.sollecito.length;
-  // badge agganciato all'icona, come le notifiche delle app su iPhone
+  const df=daFareRimborso();
+  const nAz=df.invia.length+df.cambiati.length+df.correggi.length+df.attesaPag.filter(b=>giorniDa(b.inviato)>=GIORNI_SOLLECITO).length;
   el.innerHTML=`<span style="position:relative;display:inline-block">🏢${nAz?`<span aria-label="${nAz} da fare" style="position:absolute;top:-8px;left:-11px;min-width:15px;height:15px;line-height:15px;border-radius:8px;background:var(--o);color:#000;font-size:9px;font-weight:700;padding:0 3px;letter-spacing:0;text-align:center">${nAz}</span>`:''}</span> Rimborso`;
-}
-function annullaPag(idx){
-  askConfirm('Annullare il pagamento?',()=>{
-    bimArch[idx].pagato=false;
-    delete bimArch[idx].dataPag;delete bimArch[idx].notePag;
-    LS.set('rt_bimarch',bimArch);render();
-  });
 }
 
 // ══════════════════════════════════════════════════════════════════════════════
@@ -1284,7 +1432,54 @@ function rGrafici(){
 // ══════════════════════════════════════════════════════════════════════════════
 // STORICO TAB
 // ══════════════════════════════════════════════════════════════════════════════
+// Storico: tutto quello che l'app registra e genera, in tre sezioni
+let stTab='cicli';
+function setStTab(t){stTab=t;render();document.getElementById('main').scrollTop=0}
 function rStorico(){
+  const seg=`<div class="seg">
+    <button class="${stTab==='cicli'?'on':''}" onclick="setStTab('cicli')">⛽ Cicli (${hist.length})</button>
+    <button class="${stTab==='documenti'?'on':''}" onclick="setStTab('documenti')">📄 Documenti (${documenti.length})</button>
+    <button class="${stTab==='registro'?'on':''}" onclick="setStTab('registro')">🕘 Registro</button>
+  </div>`;
+  if(stTab==='documenti')return seg+rDocumenti();
+  if(stTab==='registro')return seg+rRegistro();
+  return seg+rStoricoCicli();
+}
+function rDocumenti(){
+  if(!documenti.length)return`<div class="empty">Nessun documento generato.<br/>Report e ricevute dei rimborsi compaiono qui<br/>appena li crei dalla tab Rimborso.</div>`;
+  const perBim={};
+  documenti.forEach(d=>{(perBim[d.bim]=perBim[d.bim]||[]).push(d)});
+  return`<div class="info">Ogni report e ricevuta resta salvato così com'era quando l'hai generato. Tocca per vederlo o condividerlo come PDF.</div>`+
+    Object.keys(perBim).sort().reverse().map(k=>{
+      const b=bimByKey(k),s=b?statoBim(b):null;
+      const stato=s==='pagato'?`<span style="color:var(--g)">✓ pagato il ${fd(b.dataPag)}</span>`:s==='inviato'?`<span style="color:var(--b)">⏳ inviato il ${fd(b.inviato)}</span>`:s==='dainviare'?'<span style="color:var(--o)">da inviare</span>':s==='stima'?'<span style="color:var(--mu)">attesa bolletta</span>':k===curBim()?'<span style="color:var(--mu)">in corso</span>':'';
+      return`<div style="background:var(--bg2);border:1px solid var(--bd);border-radius:8px;margin-bottom:10px;overflow:hidden">
+        <div style="display:flex;justify-content:space-between;align-items:center;padding:9px 12px;background:var(--bg3);border-bottom:1px solid var(--bd)">
+          <strong style="font-family:'Barlow Condensed',sans-serif;font-size:15px;text-transform:uppercase;letter-spacing:1px">${es(bimLbl(k))}</strong><span style="font-size:11px">${stato}</span></div>
+        ${perBim[k].map(d=>{
+          const etich=d.tipo==='ricevuta'?'Ricevuta di pagamento':(b&&b.docInvio===d.id?'Report inviato all\'azienda':'Report rimborso'+(d.provvisorio?' (provvisorio)':''));
+          return`<div style="display:flex;align-items:center;gap:10px;padding:10px 12px;border-bottom:1px solid var(--bd);cursor:pointer" onclick="apriDoc(${d.id})">
+            <span style="font-size:20px">${d.tipo==='ricevuta'?'🧾':'📄'}</span>
+            <div style="flex:1;min-width:0"><div style="font-size:13px">${etich}</div><div style="font-size:10px;color:var(--mu)">${fdt(d.creato)}</div></div>
+            <div style="font-family:'Barlow Condensed',sans-serif;font-size:18px;font-weight:700">€ ${d.importo},00</div>
+            <span style="color:var(--mu)">›</span></div>`;}).join('')}
+      </div>`;
+    }).join('');
+}
+const ICONE_LOG={ricarica:'🔌',chiuso:'📦',bolletta:'🧾',coeff:'⚡',documento:'📄',condiviso:'📤',inviato:'📤',pagato:'✅',annulla:'↩️',elimina:'🗑️',ciclo:'⛽',backup:'💾'};
+function rRegistro(){
+  if(!registro.length)return`<div class="empty">Il registro è vuoto.<br/>Da ora ogni operazione (ricariche, bollette,<br/>report, invii, pagamenti) viene annotata qui.</div>`;
+  let h=`<div class="info">Tutte le operazioni, dalla più recente. Le ultime 500 restano salvate (e nel backup).</div>`,giorno='';
+  registro.forEach(e=>{
+    const d=new Date(e.ts),g=isoLocale(d);
+    if(g!==giorno){giorno=g;h+=`<div class="seclbl" style="margin-top:12px">${d.toLocaleDateString('it-IT',{weekday:'long',day:'numeric',month:'long',year:'numeric'})}</div>`}
+    h+=`<div style="display:flex;gap:10px;padding:8px 10px;background:var(--bg2);border:1px solid var(--bd);border-radius:6px;margin-bottom:6px;font-size:12px">
+      <span>${ICONE_LOG[e.tipo]||'•'}</span><span style="flex:1">${es(e.testo)}</span>
+      <span style="color:var(--mu);font-size:10px;white-space:nowrap">${d.toLocaleTimeString('it-IT',{hour:'2-digit',minute:'2-digit'})}</span></div>`;
+  });
+  return h;
+}
+function rStoricoCicli(){
   if(!hist.length)return`<div class="empty">Nessun ciclo salvato.<br/>Completa il primo ciclo nella tab Ciclo.</div>`;
   const totB=hist.reduce((s,h)=>s+n(h.costoBenz),0);
   const totR=hist.reduce((s,h)=>s+n(h.rimborso),0);
@@ -1377,7 +1572,10 @@ function toggleOpen(id){sOpen[id]=!sOpen[id];if(sOpen[id])sDetail[id]=false;rend
 function toggleDet(id){sDetail[id]=!sDetail[id];if(sDetail[id])sOpen[id]=false;render()}
 function delHist(id){askConfirm('Eliminare questo ciclo?',()=>{
   const snap=snapDati();
-  hist=hist.filter(h=>h.id!==id);LS.set('rt_hist',hist);render();
+  const h0=hist.find(h=>h.id===id);
+  hist=hist.filter(h=>h.id!==id);LS.set('rt_hist',hist);
+  if(h0)logEv('elimina',`Ciclo del ${fd(h0.data)} eliminato`);
+  render();
   offriAnnulla('Ciclo eliminato',snap);
 })}
 function saveStorico(id){
@@ -1423,7 +1621,9 @@ function saveNRif(){
     kwhLav,costoKwhAz:cKwhAz,rimborso:r2(kwhLav*n(cKwhAz))
   });
   hist.sort((a,b)=>a.data<b.data?1:-1);
-  LS.set('rt_hist',hist);closeMo('mo-nrif');sw('storico');
+  LS.set('rt_hist',hist);closeMo('mo-nrif');
+  logEv('ciclo',`Rifornimento mancante aggiunto: ${fd(data)}`);
+  stTab='cicli';sw('storico');
   showToast('✓ Rifornimento aggiunto!',true);
 }
 
@@ -1512,7 +1712,11 @@ function saveBollAz(){
   if(bimSel===cur){bollRef=boll;LS.set('rt_boll',bollRef)}
   // "ultimo coefficiente noto" = quello della bolletta più recente: è la stima per i bimestri ancora senza bolletta
   const latest=Object.keys(map).filter(k=>n(map[k])).sort().pop();
-  if(latest===bimSel){costoKwh=String(coeff);LS.set('rt_kwh',costoKwh);LS.set('rt_kwh_from',bimSel)}
+  if(latest===bimSel){
+    costoKwh=String(coeff);LS.set('rt_kwh',costoKwh);LS.set('rt_kwh_from',bimSel);
+    // i bimestri chiusi ancora "in stima" (non inviati/pagati) usano la stima più aggiornata
+    bimArch.forEach(x=>{if(x.key!==bimSel&&x.stima&&!x.inviato&&!x.pagato){x.costoKwh=String(coeff);ricalcolaBim(x)}});
+  }
   const arch=LS.get('rt_boll_arch',[]);
   arch.unshift({tipo:'aziendale',periodo:boll.periodo,bimestre:bimSel,coeff,data:td()});
   LS.set('rt_boll_arch',arch);
@@ -1524,12 +1728,14 @@ function saveBollAz(){
     b.costoKwh=String(coeff);b.stima=false;b.bolletta=boll;
     ricalcolaBim(b);
     LS.set('rt_bimarch',bimArch);
-    msg=`✓ ${b.label}: rimborso € ${prima.toFixed(2)} → € ${n(b.totImp).toFixed(2)}`+(b.pagato?' · già pagato, verifica!':'');
+    msg=`✓ ${b.label}: rimborso € ${prima.toFixed(2)} → € ${n(b.totImp).toFixed(2)}`+(b.pagato?' · già pagato, verifica!':b.inviato?' · già inviato: genera un nuovo report':' · pronto da inviare');
   }else if(bimSel===cur){
     msg='✓ Bolletta '+bimLbl(cur)+' salvata · € '+coeff.toFixed(5)+'/kWh';
   }else{
     msg='✓ Coefficiente salvato per '+bimLbl(bimSel)+' (nessuna ricarica in quel bimestre)';
   }
+  LS.set('rt_bimarch',bimArch);
+  logEv('bolletta',`Bolletta aziendale ${bimLbl(bimSel)}${boll.numero?' n. '+boll.numero:''} · € ${coeff.toFixed(5)}/kWh`+(b?` → rimborso € ${n(b.totImp).toFixed(2)}`:''),bimSel);
   render();showToast(msg,true);
 }
 // riepilogo coefficienti per bimestre (tab Bolletta)
@@ -1585,6 +1791,7 @@ function saveBollCasa(){
   arch.unshift({tipo:'casa',periodo,bimestre:bimSel,coeff,data:td()});
   LS.set('rt_boll_arch',arch);
   render();
+  logEv('bolletta',`Bolletta casa ${bimLbl(bimSel)} · € ${coeff.toFixed(4)}/kWh · ${count} cicli ricalcolati`,bimSel);
   showToast('✓ Bolletta casa '+bimLbl(bimSel)+': € '+coeff.toFixed(4)+'/kWh · '+count+' cicli aggiornati'+(stime?' · '+stime+' stime aggiornate':''),true);
 }
 // riepilogo €/kWh casa per bimestre (tab Bolletta)
@@ -1757,19 +1964,28 @@ function saveRicRev(){
 }
 async function extractAz(file){
   const toast=showToast('Lettura ricarica...',false);
-  try{const j=await callGemini(file,'Display wallbox o app. Piu sessioni possibili. JSON puro:\n{"sessioni":[{"data":"YYYY-MM-DD","kwh":""}]}\nData di oggi se non visibile: '+td()+'. Solo JSON.',600);
+  try{const j=await callGemini(file,'Display wallbox o app di ricarica auto. Possono esserci piu sessioni. JSON puro:\n{"sessioni":[{"data":"YYYY-MM-DD","kwh":""}]}\nLa data DEVE essere nel formato YYYY-MM-DD (es. 2026-08-05). Se l\'anno non e visibile usa '+td().slice(0,4)+'. Se la data non e visibile usa '+td()+'. kwh solo il numero. Solo JSON.',600);
     const p=JSON.parse(j);
-    const sessioni=(p.sessioni||[]).filter(s=>s.kwh&&String(s.kwh).trim()!=='');
-    let nuove=0,saltate=0;
+    const sessioni=(p.sessioni||[]).filter(s=>s&&s.kwh&&n(s.kwh)>0);
+    let nuove=0,saltate=0,daVerificare=0;
+    const perBim={};
     sessioni.forEach(s=>{
-      const data=s.data||td(),kwh=String(s.kwh).trim();
-      const dup=r=>r.data===data&&String(r.kwh).trim()===kwh;
+      const data=dataRicarica(s.data),kwh=String(s.kwh).trim();
+      const dup=r=>normData(r.data)===data&&n(r.kwh)===n(kwh);
       if(ricAz.some(dup)||bimArch.some(b=>(b.ricariche||[]).some(dup))){saltate++;return;}
-      ricAz.push({id:Date.now()+Math.random(),data,kwh,note:''});nuove++;
+      ricAz.push({id:nuovoId(),data,kwh,note:'',fonte:'foto'});nuove++;
+      const k=bimKey(data);
+      if(!k||k>curBim())daVerificare++;else perBim[k]=(perBim[k]||0)+1;
     });
-    ricAz.sort((a,b)=>b.data>a.data?1:-1);LS.set('rt_ricaz',ricAz);
+    ricAz.sort((a,b)=>String(b.data)>String(a.data)?1:-1);LS.set('rt_ricaz',ricAz);
+    if(nuove)logEv('ricarica',`${plur(nuove,'ricarica letta','ricariche lette')} da foto`+(Object.keys(perBim).length?' → '+Object.keys(perBim).sort().map(k=>bimLbl(k)+' ('+perBim[k]+')').join(', '):''));
     removeToast(toast);
-    if(nuove>0){showToast('✓ '+nuove+' aggiunte'+(saltate?' · '+saltate+' già presenti':'')+'!',true);setTimeout(()=>render(),1500);}
+    autoChiudiBimestri(true); // sposto subito nei bimestri chiusi: il messaggio qui sotto dice già dove
+    if(nuove>0){
+      const dove=Object.keys(perBim).sort().map(k=>bimLbl(k)+(k===curBim()?'':' (chiuso)')).join(', ');
+      showToast('✓ '+nuove+' aggiunte'+(dove?' in '+dove:'')+(saltate?' · '+saltate+' già presenti':'')+(daVerificare?' · ⚠️ '+daVerificare+' con data da verificare':''),!daVerificare,!!daVerificare);
+      render();
+    }
     else if(saltate>0)showToast('⚠️ Tutte le '+saltate+' ricariche già presenti',false,true);
     else showToast('⚠️ Nessun kWh trovato nella foto',false,true);
   }catch(e){removeToast(toast);showToast('Errore AI: '+e.message,false,true)}
@@ -1827,7 +2043,7 @@ function showToast(msg,ok,err){
 function removeToast(t){if(t&&document.body.contains(t))document.body.removeChild(t)}
 
 // ── ANNULLA: copia dei dati prima di un'eliminazione + barra "Annulla" per 7 secondi ──
-function snapDati(){return JSON.stringify({ricAz,bimArch,hist,cycle})}
+function snapDati(){return JSON.stringify({ricAz,bimArch,hist,cycle,documenti})}
 let undoTimer=null;
 function offriAnnulla(msg,snap){
   const old=document.getElementById('undo-bar');if(old)old.remove();
@@ -1838,8 +2054,9 @@ function offriAnnulla(msg,snap){
   b.innerHTML=`<span>${es(msg)}</span><button class="btn bo bsm" style="flex-shrink:0">↩️ Annulla</button>`;
   b.querySelector('button').onclick=()=>{
     const d=JSON.parse(snap);
-    ricAz=d.ricAz;bimArch=d.bimArch;hist=d.hist;cycle=d.cycle;
-    LS.set('rt_ricaz',ricAz);LS.set('rt_bimarch',bimArch);LS.set('rt_hist',hist);LS.set('rt_cycle',cycle);
+    ricAz=d.ricAz;bimArch=d.bimArch;hist=d.hist;cycle=d.cycle;if(d.documenti)documenti=d.documenti;
+    LS.set('rt_ricaz',ricAz);LS.set('rt_bimarch',bimArch);LS.set('rt_hist',hist);LS.set('rt_cycle',cycle);LS.set('rt_docs',documenti);
+    logEv('annulla','Ripristinata l\'ultima eliminazione ('+msg+')');
     clearTimeout(undoTimer);b.remove();render();showToast('✓ Ripristinato',true);
   };
   document.body.appendChild(b);
@@ -1847,70 +2064,254 @@ function offriAnnulla(msg,snap){
 }
 
 // ══════════════════════════════════════════════════════════════════════════════
-// PRINT (window.print)
+// DOCUMENTI: REPORT E RICEVUTE (PDF)
 // ══════════════════════════════════════════════════════════════════════════════
-function doPrint(tipo,bimIdx){
-  let ricariche,bRef,cKwh,periodo;
-  if(bimIdx!==null&&bimIdx!==undefined){
-    const b=bimArch[bimIdx];if(!b)return;
-    ricariche=b.ricariche||[];bRef=b.bolletta;cKwh=n(b.costoKwh);periodo=b.label;
-  } else {
-    const curK=curBim();
-    ricariche=ricAz.filter(r=>bimOfRic(r)===curK);
-    bRef=bollForBim(curK);cKwh=coeffForBim(curK);
-    const months=Object.keys(ricariche.reduce((m,r)=>{const k=(r.data||'').substring(0,7);m[k]=1;return m},{})).sort();
-    const mLbl=m=>{const[y,mo]=m.split('-');return new Date(parseInt(y),parseInt(mo)-1,1).toLocaleDateString('it-IT',{month:'long',year:'numeric'})};
-    const f=months[0]||'',l=months[months.length-1]||'';
-    periodo=f===l?mLbl(f):(f&&l?mLbl(f)+' - '+mLbl(l):'');
-  }
-  const isPag=tipo==='ricevuta'&&bimIdx!==null&&bimArch[bimIdx]?.pagato;
-  const bPag=isPag?bimArch[bimIdx]:null;
-  const byM={};ricariche.forEach(r=>{const k=(r.data||'').substring(0,7);if(!byM[k])byM[k]=[];byM[k].push(r)});
-  const months=Object.keys(byM).sort();
-  const mLbl=m=>{const[y,mo]=m.split('-');return new Date(parseInt(y),parseInt(mo)-1,1).toLocaleDateString('it-IT',{month:'long',year:'numeric'})};
-  let totKwh=0,totImp=0,mHTML='';
-  months.forEach(m=>{
-    const rows=byM[m].sort((a,b)=>a.data>b.data?1:-1);
-    const mK=rows.reduce((s,r)=>s+n(r.kwh),0);const mI=r2(mK*cKwh);
-    totKwh+=mK;totImp+=mI;
-    mHTML+=`<div class="psec"><div class="psect">Dettaglio ricariche - ${mLbl(m)}</div>
-      <table class="ptbl"><thead><tr><th>Data</th><th>kWh</th><th style="text-align:right">Importo</th></tr></thead><tbody>
-      ${rows.map(r=>`<tr><td>${fd(r.data)}</td><td>${n(r.kwh).toFixed(2)}</td><td style="text-align:right">${cKwh>0?'EUR '+r2(n(r.kwh)*cKwh).toFixed(2):'-'}</td></tr>`).join('')}
-      <tr class="tr"><td colspan="2"><strong>Tot. ${mLbl(m).split(' ')[0]}: ${mK.toFixed(2)} kWh</strong></td><td style="text-align:right"><strong>EUR ${mI.toFixed(2)}</strong></td></tr>
-      </tbody></table></div>`;
+// I report (rimborso) e le ricevute vengono salvati come "documenti": dati congelati al momento della
+// generazione, riapribili dallo Storico, condivisibili come PDF vero (anche nell'app iOS).
+
+function eurIt(v){return'EUR '+r2(n(v)).toFixed(2).replace('.',',')}
+function kwhIt(v){return r2(n(v)).toFixed(2).replace('.',',')}
+
+// fotografia dei dati di un bimestre per il documento
+function costruisciRep(tipo,k){
+  const cur=curBim(),b=bimByKey(k);
+  let ric,cKwh,boll,prov;
+  if(b){ric=b.ricariche||[];cKwh=n(b.costoKwh);boll=b.bolletta||bollForBim(k);prov=!!b.stima}
+  else{ric=ricAz.filter(r=>bimOfRic(r)===k);cKwh=coeffForBim(k);boll=bollForBim(k);prov=true}
+  const per={};
+  ric.forEach(r=>{const d=normData(r.data);if(!d)return;(per[d.slice(0,7)]=per[d.slice(0,7)]||[]).push({data:d,kwh:r2(n(r.kwh))})});
+  const mesi=Object.keys(per).sort().map(m=>{
+    const righe=per[m].sort((a,b)=>a.data>b.data?1:-1).map(x=>({...x,imp:r2(x.kwh*cKwh)}));
+    const kwh=r2(righe.reduce((s,x)=>s+x.kwh,0));
+    return{m,label:meseLbl(m,true),righe,kwh,imp:r2(kwh*cKwh)};
   });
-  const rounded=Math.ceil(totImp);
-  document.getElementById('parea').innerHTML=`<div class="pp">
-    <div class="ph"><div class="pht">${isPag?'Ricevuta di pagamento rimborso energia':'Riepilogo rimborso energia'}</div>
-    <div class="phs">Ricariche mezzo aziendale - ${es(periodo)}</div>
-    <div style="font-size:8pt;color:#888;margin-top:4px">Generato il ${new Date().toLocaleDateString('it-IT')}</div></div>
-    ${isPag?`<div class="pbox pg"><div style="font-weight:bold;color:#166534">PAGAMENTO AVVENUTO</div>
-      <div>Data: <strong>${fd(bPag.dataPag)}</strong></div>
-      ${bPag.notePag?`<div>Note: ${es(bPag.notePag)}</div>`:''}</div>`:''}
+  const totKwh=r2(mesi.reduce((s,x)=>s+x.kwh,0)),totImp=r2(totKwh*cKwh);
+  return{v:1,tipo,bim:k,label:bimLbl(k),generato:new Date().toISOString(),
+    provvisorio:prov,inCorso:k===cur,coeff:cKwh,
+    bolletta:boll?{numero:boll.numero||'',periodo:boll.periodo||'',consumoTot:boll.consumoTot||'',totaleFattura:boll.totaleFattura||'',scontoSoci:boll.scontoSoci||'',nota:boll.nota||''}:null,
+    mesi,totKwh,totImp,arrotondato:arrot(totImp),
+    pagamento:tipo==='ricevuta'&&b?{data:b.dataPag||'',note:b.notePag||''}:null};
+}
+// crea (o riusa se identico) un documento e lo salva
+function creaDoc(tipo,k){
+  const rep=costruisciRep(tipo,k);
+  const firma=r=>JSON.stringify({...r,generato:0});
+  const uguale=documenti.find(d=>d.tipo===tipo&&d.bim===k&&firma(d.rep)===firma(rep));
+  if(uguale)return uguale;
+  const d={id:nuovoId(),tipo,bim:k,label:rep.label,creato:rep.generato,importo:rep.arrotondato,esatto:rep.totImp,provvisorio:rep.provvisorio||rep.inCorso,rep};
+  documenti.unshift(d);
+  if(documenti.length>200)documenti.length=200;
+  LS.set('rt_docs',documenti);
+  logEv('documento',`${tipo==='ricevuta'?'Ricevuta di pagamento':'Report rimborso'}${d.provvisorio?' provvisorio':''} ${rep.label} · € ${rep.arrotondato},00`,k);
+  return d;
+}
+function apriReport(k){apriDoc(creaDoc('rimborso',k).id)}
+
+// ── anteprima HTML (stesse classi usate per la stampa) ──
+function repHTML(rep){
+  const ric=rep.tipo==='ricevuta';
+  const bo=rep.bolletta;
+  return`<div class="pp">
+    <div class="ph"><div class="pht">${ric?'Ricevuta di pagamento rimborso energia':'Riepilogo rimborso energia'}</div>
+    <div class="phs">Ricariche mezzo aziendale - ${es(rep.label)}</div>
+    <div style="font-size:8pt;color:#888;margin-top:4px">Generato il ${fdt(rep.generato)}</div>
+    ${rep.inCorso?`<div style="font-size:9pt;color:#c2410c;margin-top:4px;font-weight:bold">PROVVISORIO - bimestre in corso</div>`:rep.provvisorio?`<div style="font-size:9pt;color:#c2410c;margin-top:4px;font-weight:bold">PROVVISORIO - coefficiente stimato, bolletta non ancora disponibile</div>`:''}</div>
+    ${ric&&rep.pagamento?`<div class="pbox pg"><div style="font-weight:bold;color:#166534">PAGAMENTO AVVENUTO</div><div>Data: <strong>${fd(rep.pagamento.data)}</strong></div>${rep.pagamento.note?`<div>Note: ${es(rep.pagamento.note)}</div>`:''}</div>`:''}
     <div class="psec"><div class="psect">Bolletta di riferimento</div>
       <table class="ptbl"><tbody>
-        <tr><td><strong>Bolletta</strong></td><td>${bRef?'N. '+es(bRef.numero||'—')+' - '+es(bRef.periodo||periodo):'—'}</td></tr>
-        <tr><td><strong>Consumo totale</strong></td><td>${bRef?(es(bRef.consumoTot)+' kWh'):'—'}</td></tr>
-        <tr><td><strong>Totale bolletta</strong></td><td>${bRef?'EUR '+parseFloat(bRef.totaleFattura||0).toFixed(2):'—'}</td></tr>
-        <tr><td><strong>Sconto soci</strong></td><td>${bRef?'EUR -'+parseFloat(bRef.scontoSoci||0).toFixed(2):'—'}</td></tr>
-        <tr><td><strong>Coefficiente</strong></td><td>EUR ${cKwh.toFixed(5)} per kWh</td></tr>
+        <tr><td><strong>Bolletta</strong></td><td>${bo?'N. '+es(bo.numero||'—')+' - '+es(bo.periodo||rep.label):'— (non ancora disponibile)'}</td></tr>
+        <tr><td><strong>Consumo totale</strong></td><td>${bo&&bo.consumoTot?es(bo.consumoTot)+' kWh':'—'}</td></tr>
+        <tr><td><strong>Totale bolletta</strong></td><td>${bo&&bo.totaleFattura?eurIt(bo.totaleFattura):'—'}</td></tr>
+        <tr><td><strong>Sconto soci</strong></td><td>${bo&&bo.scontoSoci?'- '+eurIt(bo.scontoSoci):'—'}</td></tr>
+        <tr><td><strong>Coefficiente</strong></td><td>EUR ${rep.coeff.toFixed(5).replace('.',',')} per kWh</td></tr>
       </tbody></table></div>
-    ${mHTML}
+    ${rep.mesi.map(m=>`<div class="psec"><div class="psect">Dettaglio ricariche - ${es(m.label)}</div>
+      <table class="ptbl"><thead><tr><th>Data</th><th>kWh</th><th style="text-align:right">Importo</th></tr></thead><tbody>
+      ${m.righe.map(x=>`<tr><td>${fd(x.data)}</td><td>${kwhIt(x.kwh)}</td><td style="text-align:right">${eurIt(x.imp)}</td></tr>`).join('')}
+      <tr class="tr"><td colspan="2">Totale ${es(m.label.split(' ')[0])}: ${kwhIt(m.kwh)} kWh</td><td style="text-align:right">${eurIt(m.imp)}</td></tr>
+      </tbody></table></div>`).join('')}
     <div class="psec"><div class="psect">Riepilogo finale</div>
       <table class="ptbl"><thead><tr><th>Periodo</th><th>kWh</th><th style="text-align:right">Importo</th></tr></thead><tbody>
-        ${months.map(m=>{const mK=byM[m].reduce((s,r)=>s+n(r.kwh),0);return`<tr><td>${mLbl(m)}</td><td>${mK.toFixed(2)} kWh</td><td style="text-align:right">EUR ${r2(mK*cKwh).toFixed(2)}</td></tr>`}).join('')}
-        <tr class="tr"><td><strong>Totale bimestre</strong></td><td><strong>${r2(totKwh).toFixed(2)} kWh</strong></td><td style="text-align:right"><strong>EUR ${r2(totImp).toFixed(2)}</strong></td></tr>
+      ${rep.mesi.map(m=>`<tr><td>${es(m.label)}</td><td>${kwhIt(m.kwh)} kWh</td><td style="text-align:right">${eurIt(m.imp)}</td></tr>`).join('')}
+      <tr class="tr"><td>Totale bimestre</td><td>${kwhIt(rep.totKwh)} kWh</td><td style="text-align:right">${eurIt(rep.totImp)}</td></tr>
       </tbody></table></div>
-    <div class="pbox ${isPag?'pg':'po'}">
-      <div style="font-size:10pt;font-weight:bold">${isPag?'Importo pagato':'Importo da pagare'}</div>
-      <div class="pamt">EUR ${rounded},00</div>
-      <div style="font-size:9pt;margin-top:4px">Importo esatto EUR ${r2(totImp).toFixed(2)} + arrotondamento EUR ${(rounded-r2(totImp)).toFixed(2)}</div>
+    <div class="pbox ${ric?'pg':'po'}">
+      <div style="font-size:10pt;font-weight:bold">${ric?'Importo pagato':'Importo da pagare'}</div>
+      <div class="pamt">EUR ${rep.arrotondato},00</div>
+      <div style="font-size:9pt;margin-top:4px">Importo esatto ${eurIt(rep.totImp)} + arrotondamento ${eurIt(rep.arrotondato-rep.totImp)}</div>
     </div>
-    ${bRef&&bRef.nota?`<div style="font-size:8pt;color:#666;margin:8px 0;font-style:italic">Nota: ${es(bRef.nota)}</div>`:''}
+    ${bo&&bo.nota?`<div style="font-size:8pt;color:#666;margin:8px 0;font-style:italic">Nota: ${es(bo.nota)}</div>`:''}
     <div class="psig">Firma per presa visione ____________________________</div>
-    <div class="pfoot"><span>RangerTrack</span><span>${es(periodo)}</span></div>
+    <div class="pfoot"><span>RangerTrack</span><span>${es(rep.label)}</span></div>
   </div>`;
-  setTimeout(()=>{window.print();setTimeout(()=>{document.getElementById('parea').innerHTML=''},1500)},300);
+}
+
+// ── PDF minimo scritto a mano (nessuna libreria: funziona offline e nell'app iOS) ──
+// Larghezze dei caratteri 32..126 di Helvetica e Helvetica-Bold (metriche standard Adobe, /1000 em)
+const PDF_WN=[278,278,355,556,556,889,667,191,333,333,389,584,278,333,278,278,556,556,556,556,556,556,556,556,556,556,278,278,584,584,584,556,1015,667,667,722,722,667,611,778,722,278,500,667,556,833,722,778,667,778,722,667,611,722,667,944,667,667,611,278,278,278,469,556,333,556,556,500,556,556,278,556,556,222,222,500,222,833,556,556,556,556,333,500,278,556,500,722,500,500,500,334,260,334,584];
+const PDF_WB=[278,333,474,556,556,889,722,238,333,333,389,584,278,333,278,278,556,556,556,556,556,556,556,556,556,556,333,333,584,584,584,611,975,722,722,722,722,667,611,778,722,278,556,722,611,833,722,778,667,778,722,667,611,722,667,944,667,667,611,333,278,333,584,556,333,556,611,556,611,556,333,611,611,278,278,556,278,889,611,611,611,611,389,556,333,611,556,778,556,556,500,389,280,389,584];
+function pdfByte(ch){
+  const c=ch.charCodeAt(0);
+  if(c<128||(c>=160&&c<=255))return c;
+  const m={'€':128,'‚':130,'…':133,'‘':145,'’':146,'“':147,'”':148,'•':149,'–':150,'—':151};
+  return m[ch]||63; // '?'
+}
+function MiniPDF(){
+  const W=595.28,H=841.89,pages=[];let cur=null;
+  const f=v=>(Math.round(v*100)/100).toString();
+  const col=c=>c.map(x=>f(x)).join(' ');
+  this.W=W;this.H=H;
+  this.page=()=>{cur=[];pages.push(cur);return pages.length-1};
+  this.goto=i=>{cur=pages[i]};
+  this.count=()=>pages.length;
+  this.width=(s,size,bold)=>{
+    let w=0;const t=bold?PDF_WB:PDF_WN;
+    for(const ch of String(s)){
+      const base=ch.normalize('NFD')[0];const c=base.charCodeAt(0);
+      w+=(c>=32&&c<=126)?t[c-32]:556;
+    }
+    return w*size/1000;
+  };
+  const enc=s=>{let o='';for(const ch of String(s)){const b=String.fromCharCode(pdfByte(ch));o+=(b==='('||b===')'||b==='\\')?'\\'+b:b}return o};
+  this.text=(x,y,s,o={})=>{
+    const size=o.size||10,bold=!!o.bold;
+    const w=this.width(s,size,bold);
+    const tx=o.align==='right'?x-w:o.align==='center'?x-w/2:x;
+    cur.push(`BT ${col(o.color||[0,0,0])} rg /${bold?'F2':'F1'} ${f(size)} Tf ${f(tx)} ${f(H-y)} Td (${enc(s)}) Tj ET`);
+  };
+  this.line=(x1,y1,x2,y2,w=.5,c=[0,0,0])=>cur.push(`${f(w)} w ${col(c)} RG ${f(x1)} ${f(H-y1)} m ${f(x2)} ${f(H-y2)} l S`);
+  this.rect=(x,y,w,h,fill,stroke,lw=1)=>{
+    if(fill)cur.push(`${col(fill)} rg ${f(x)} ${f(H-y-h)} ${f(w)} ${f(h)} re f`);
+    if(stroke)cur.push(`${f(lw)} w ${col(stroke)} RG ${f(x)} ${f(H-y-h)} ${f(w)} ${f(h)} re S`);
+  };
+  this.output=()=>{
+    const objs=[];
+    objs[1]='<< /Type /Catalog /Pages 2 0 R >>';
+    objs[3]='<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica /Encoding /WinAnsiEncoding >>';
+    objs[4]='<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica-Bold /Encoding /WinAnsiEncoding >>';
+    const kids=[];
+    pages.forEach((p,i)=>{
+      const po=5+i*2,co=6+i*2,stream=p.join('\n');
+      kids.push(po+' 0 R');
+      objs[po]=`<< /Type /Page /Parent 2 0 R /MediaBox [0 0 ${W} ${H}] /Resources << /Font << /F1 3 0 R /F2 4 0 R >> >> /Contents ${co} 0 R >>`;
+      objs[co]=`<< /Length ${stream.length} >>\nstream\n${stream}\nendstream`;
+    });
+    objs[2]=`<< /Type /Pages /Kids [${kids.join(' ')}] /Count ${pages.length} >>`;
+    let out='%PDF-1.4\n%\xE2\xE3\xCF\xD3\n';const off=[];
+    for(let i=1;i<objs.length;i++){off[i]=out.length;out+=`${i} 0 obj\n${objs[i]}\nendobj\n`}
+    const xref=out.length;
+    out+=`xref\n0 ${objs.length}\n0000000000 65535 f \n`;
+    for(let i=1;i<objs.length;i++)out+=String(off[i]).padStart(10,'0')+' 00000 n \n';
+    out+=`trailer\n<< /Size ${objs.length} /Root 1 0 R >>\nstartxref\n${xref}\n%%EOF\n`;
+    const u=new Uint8Array(out.length);for(let i=0;i<out.length;i++)u[i]=out.charCodeAt(i)&255;
+    return u;
+  };
+}
+function repPDF(rep){
+  const p=new MiniPDF();p.page();
+  const L=50,R=545,MAX=780,GR=[.45,.45,.45];
+  let y=60;
+  const spazio=h=>{if(y+h>MAX){p.page();y=60}};
+  const ric=rep.tipo==='ricevuta',bo=rep.bolletta;
+  // intestazione
+  p.text(L,y,ric?'Ricevuta di pagamento rimborso energia':'Riepilogo rimborso energia',{size:17,bold:true});y+=18;
+  p.text(L,y,'Ricariche mezzo aziendale - '+rep.label,{size:10,color:GR});y+=13;
+  p.text(L,y,'Generato il '+fdt(rep.generato),{size:8,color:GR});y+=12;
+  if(rep.inCorso||rep.provvisorio){p.text(L,y,rep.inCorso?'PROVVISORIO - bimestre in corso':'PROVVISORIO - coefficiente stimato, bolletta non ancora disponibile',{size:9,bold:true,color:[.76,.25,.05]});y+=12}
+  p.line(L,y,R,y,2);y+=18;
+  if(ric&&rep.pagamento){
+    const h=rep.pagamento.note?50:38;
+    p.rect(L,y-12,R-L,h,[.94,.99,.96],[.13,.77,.37],1.5);
+    p.text(L+10,y+2,'PAGAMENTO AVVENUTO',{size:10,bold:true,color:[.09,.4,.2]});
+    p.text(L+10,y+16,'Data: '+fd(rep.pagamento.data),{size:10});
+    if(rep.pagamento.note)p.text(L+10,y+29,'Note: '+rep.pagamento.note,{size:10});
+    y+=h+8;
+  }
+  const sezione=t=>{spazio(40);p.text(L,y,t,{size:12,bold:true});y+=5;p.line(L,y,R,y,.5,[.8,.8,.8]);y+=14};
+  const kv=(k,v)=>{spazio(16);p.text(L,y,k,{size:9.5,bold:true});p.text(L+150,y,v,{size:9.5});y+=6;p.line(L,y,R,y,.3,[.92,.92,.92]);y+=11};
+  sezione('Bolletta di riferimento');
+  kv('Bolletta',bo?'N. '+(bo.numero||'—')+' - '+(bo.periodo||rep.label):'— (non ancora disponibile)');
+  kv('Consumo totale',bo&&bo.consumoTot?bo.consumoTot+' kWh':'—');
+  kv('Totale bolletta',bo&&bo.totaleFattura?eurIt(bo.totaleFattura):'—');
+  kv('Sconto soci',bo&&bo.scontoSoci?'- '+eurIt(bo.scontoSoci):'—');
+  kv('Coefficiente','EUR '+rep.coeff.toFixed(5).replace('.',',')+' per kWh');
+  y+=8;
+  const C1=L+6,C2=L+200,C3=R-6;
+  const tabella=(titolo,intest,righe,tot)=>{
+    sezione(titolo);
+    const testa=()=>{p.rect(L,y-11,R-L,16,[.2,.2,.2]);p.text(C1,y,intest[0],{size:9,bold:true,color:[1,1,1]});p.text(C2,y,intest[1],{size:9,bold:true,color:[1,1,1]});p.text(C3,y,intest[2],{size:9,bold:true,color:[1,1,1],align:'right'});y+=16};
+    testa();
+    righe.forEach(r=>{if(y+14>MAX){p.page();y=60;testa()}p.text(C1,y,r[0],{size:9});p.text(C2,y,r[1],{size:9});p.text(C3,y,r[2],{size:9,align:'right'});y+=4;p.line(L,y,R,y,.3,[.92,.92,.92]);y+=10});
+    spazio(18);p.rect(L,y-11,R-L,16,[.94,.94,.94]);p.text(C1,y,tot[0],{size:9,bold:true});p.text(C2,y,tot[1],{size:9,bold:true});p.text(C3,y,tot[2],{size:9,bold:true,align:'right'});y+=24;
+  };
+  rep.mesi.forEach(m=>tabella('Dettaglio ricariche - '+m.label,['Data','kWh','Importo'],m.righe.map(x=>[fd(x.data),kwhIt(x.kwh),eurIt(x.imp)]),['Totale '+m.label.split(' ')[0],kwhIt(m.kwh)+' kWh',eurIt(m.imp)]));
+  tabella('Riepilogo finale',['Periodo','kWh','Importo'],rep.mesi.map(m=>[m.label,kwhIt(m.kwh)+' kWh',eurIt(m.imp)]),['Totale bimestre',kwhIt(rep.totKwh)+' kWh',eurIt(rep.totImp)]);
+  // importo
+  spazio(80);
+  p.rect(L,y-12,R-L,62,ric?[.94,.99,.96]:[1,.97,.93],ric?[.13,.77,.37]:[.98,.45,.09],2);
+  p.text(L+12,y+3,ric?'Importo pagato':'Importo da pagare',{size:10,bold:true});
+  p.text(L+12,y+28,'EUR '+rep.arrotondato+',00',{size:22,bold:true});
+  p.text(L+12,y+43,'Importo esatto '+eurIt(rep.totImp)+' + arrotondamento '+eurIt(rep.arrotondato-rep.totImp),{size:9});
+  y+=66;
+  if(bo&&bo.nota){spazio(16);p.text(L,y,'Nota: '+bo.nota,{size:8,color:[.4,.4,.4]});y+=14}
+  spazio(40);y+=20;p.text(L,y,'Firma per presa visione ____________________________',{size:10});
+  // piè di pagina su tutte le pagine
+  const N=p.count();
+  for(let i=0;i<N;i++){p.goto(i);p.line(L,805,R,805,.5,[.8,.8,.8]);p.text(L,818,'RangerTrack - '+rep.label,{size:8,color:GR});p.text(R,818,'Pagina '+(i+1)+' di '+N,{size:8,color:GR,align:'right'})}
+  return p.output();
+}
+function nomeFileDoc(d){
+  const dt=normData(d.creato)||td();
+  return(d.tipo==='ricevuta'?'Ricevuta_rimborso_':'Rimborso_energia_')+d.label.replace(/[^A-Za-z0-9]+/g,'_')+(d.provvisorio?'_provvisorio':'')+'_'+dt+'.pdf';
+}
+function u8ToB64(u){let s='';for(let i=0;i<u.length;i+=8192)s+=String.fromCharCode.apply(null,u.subarray(i,i+8192));return btoa(s)}
+async function condividiPDF(id){
+  const d=documenti.find(x=>x.id===id);if(!d)return;
+  const bytes=repPDF(d.rep),nome=nomeFileDoc(d);
+  const cap=window.Capacitor;
+  try{
+    if(cap&&cap.isNativePlatform&&cap.isNativePlatform()){
+      const w=await cap.Plugins.Filesystem.writeFile({path:nome,data:u8ToB64(bytes),directory:'CACHE'});
+      await cap.Plugins.Share.share({title:nome,url:w.uri});
+    }else{
+      const file=new File([bytes],nome,{type:'application/pdf'});
+      if(navigator.canShare&&navigator.canShare({files:[file]}))await navigator.share({files:[file],title:nome});
+      else{const u=URL.createObjectURL(file);const a=document.createElement('a');a.href=u;a.download=nome;document.body.appendChild(a);a.click();a.remove();setTimeout(()=>URL.revokeObjectURL(u),4000)}
+    }
+    logEv('condiviso',`PDF condiviso/salvato: ${nome}`,d.bim);
+  }catch(e){if(!/cancel|abort/i.test((e&&e.name||'')+(e&&e.message||'')))showToast('Errore PDF: '+(e&&e.message||e),false,true)}
+}
+function stampaDoc(id){
+  const d=documenti.find(x=>x.id===id);if(!d)return;
+  document.getElementById('parea').innerHTML=repHTML(d.rep);
+  setTimeout(()=>{window.print();setTimeout(()=>{document.getElementById('parea').innerHTML=''},1500)},200);
+}
+// visualizzatore documento: anteprima + condividi; in modalità "invio" anche "Segna come inviato"
+function apriDoc(id,modo){
+  const d=documenti.find(x=>x.id===id);if(!d){showToast('Documento non trovato',false,true);return}
+  const b=bimByKey(d.bim),s=b?statoBim(b):null;
+  const nativo=!!(window.Capacitor&&window.Capacitor.isNativePlatform&&window.Capacitor.isNativePlatform());
+  const el=document.getElementById('doc-body');
+  el.innerHTML=`<div class="motitle" style="margin-bottom:4px">${d.tipo==='ricevuta'?'🧾 Ricevuta di pagamento':'📄 Report rimborso'} · ${es(d.label)}</div>
+    <div style="font-size:11px;color:var(--mu);margin-bottom:10px">Generato il ${fdt(d.creato)} · € ${d.importo},00${d.provvisorio?' · <span style="color:var(--o)">provvisorio</span>':''}${s==='inviato'&&b.docInvio===d.id?' · <span style="color:var(--b)">inviato il '+fd(b.inviato)+'</span>':''}${s==='pagato'?' · <span style="color:var(--g)">pagato il '+fd(b.dataPag)+'</span>':''}</div>
+    ${modo==='invio'?`<div style="background:rgba(34,197,94,.08);border:1px solid var(--g);border-radius:8px;padding:10px 12px;margin-bottom:10px;font-size:12px">1️⃣ <strong>Condividi il PDF</strong> (mail, WhatsApp, File…) all'azienda<br/>2️⃣ poi tocca <strong>Segna come inviato</strong>: ti ricorderò il pagamento.</div>`:''}
+    <div class="brow" style="margin-bottom:10px">
+      <button class="btn bo bsm" onclick="condividiPDF(${d.id})">📤 Condividi / salva PDF</button>
+      ${nativo?'':`<button class="btn bgh bsm" onclick="stampaDoc(${d.id})">🖨️ Stampa</button>`}
+      ${modo==='invio'?`<button class="btn bg bsm" onclick="segnaInviato('${d.bim}',${d.id})">✓ Segna come inviato</button>`:''}
+    </div>
+    <div class="paper">${repHTML(d.rep)}</div>
+    <div style="text-align:center;margin-top:10px"><button style="${BTN_LINK};color:var(--r)" onclick="delDoc(${d.id})">elimina documento</button></div>`;
+  openMo('mo-doc');
+}
+function delDoc(id){
+  const d=documenti.find(x=>x.id===id);if(!d)return;
+  askConfirm('Eliminare questo documento? I dati del bimestre non cambiano.',()=>{
+    const snap=snapDati();
+    documenti=documenti.filter(x=>x.id!==id);LS.set('rt_docs',documenti);
+    logEv('elimina',`Documento eliminato: ${d.tipo==='ricevuta'?'ricevuta':'report'} ${d.label}`,d.bim);
+    closeMo('mo-doc');render();offriAnnulla('Documento eliminato',snap);
+  });
 }
 
 // ══════════════════════════════════════════════════════════════════════════════
@@ -1945,12 +2346,13 @@ async function expData(){
     rt_bim_active:LS.get('rt_bim_active',''),
     rt_coeff_bim:LS.get('rt_coeff_bim',{}),rt_boll_bim:LS.get('rt_boll_bim',{}),rt_kwh_from:LS.get('rt_kwh_from',''),
     rt_coeff_casa_bim:LS.get('rt_coeff_casa_bim',{}),rt_boll_casa_bim:LS.get('rt_boll_casa_bim',{}),rt_kwh_casa_from:LS.get('rt_kwh_casa_from',''),
+    rt_docs:documenti,rt_log:registro,
     rt_luo_casa:luoCasa,rt_luo_lav:luoLav,
     rt_cycle:cycle
   };
   const json=JSON.stringify(data,null,2);
   const nome='rangertrack_backup_'+td()+'.json';
-  const markDone=()=>{LS.set('rt_last_bk',new Date().toLocaleDateString('it-IT'));LS.set('rt_last_bk_ts',Date.now());fillBkSum()};
+  const markDone=()=>{LS.set('rt_last_bk',new Date().toLocaleDateString('it-IT'));LS.set('rt_last_bk_ts',Date.now());logEv('backup','Backup esportato: '+nome);fillBkSum()};
   const cap=window.Capacitor;
   if(cap&&cap.isNativePlatform&&cap.isNativePlatform()){
     // App nativa: il download via blob non funziona in WKWebView → foglio di condivisione iOS
@@ -2000,6 +2402,9 @@ function impData(file){
       if(data.rt_boll_bim!==undefined)LS.set('rt_boll_bim',data.rt_boll_bim);
       if(data.rt_kwh_from!==undefined)LS.set('rt_kwh_from',data.rt_kwh_from);
       ['rt_coeff_casa_bim','rt_boll_casa_bim','rt_kwh_casa_from'].forEach(k=>{if(data[k]!==undefined)LS.set(k,data[k])});
+      if(Array.isArray(data.rt_docs)){documenti=data.rt_docs;LS.set('rt_docs',documenti)}
+      if(Array.isArray(data.rt_log)){registro=data.rt_log;LS.set('rt_log',registro)}
+      logEv('backup','Backup importato ('+(data.exportDate?fdt(data.exportDate):'data sconosciuta')+')');
       if(data.rt_boll_casa)LS.set('rt_boll_casa',data.rt_boll_casa);
       if(data.rt_boll_arch)LS.set('rt_boll_arch',data.rt_boll_arch);
       if(data.rt_cycle){cycle=data.rt_cycle;LS.set('rt_cycle',cycle)}
@@ -2010,7 +2415,7 @@ function impData(file){
       const res=document.getElementById('imp-res');
       if(res)res.innerHTML=`<div style="color:var(--g);padding:8px;background:rgba(34,197,94,.08);border-radius:6px;font-size:12px">
         ✓ Importazione completata!<br/>${hist.length} cicli · ${ricAz.length} ricariche az.</div>`;
-      setTimeout(()=>{closeMo('mo-backup');render()},1500);
+      setTimeout(()=>location.reload(),1500);
     }catch(err){
       const res=document.getElementById('imp-res');
       if(res)res.innerHTML=`<div style="color:var(--r);padding:8px;font-size:12px">Errore: ${err.message}</div>`;
