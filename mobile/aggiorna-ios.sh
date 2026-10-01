@@ -10,7 +10,7 @@ git fetch origin main
 git checkout origin/main -- \
   index.html sw.js logo.png apple-touch-icon.png preload_bimestri.json \
   mobile/build-www.mjs mobile/package.json mobile/IOS_SETUP.md \
-  mobile/ios/App/Podfile mobile/ios/App/App/Info.plist
+  mobile/ios/App/Podfile mobile/ios/App/App/Info.plist mobile/ios/App/App/AppDelegate.swift
 
 cd mobile
 [ -d node_modules ] || npm install

@@ -47,3 +47,32 @@ class AppDelegate: UIResponder, UIApplicationDelegate {
     }
 
 }
+
+// Ciclo di vita a scene (UIScene): obbligatorio per le app compilate con l'SDK di iOS 27,
+// altrimenti l'app va in crash all'avvio (_UIApplicationEvaluateRuntimeIssueForNoSceneLifecycleAdoption).
+// La finestra e il CAPBridgeViewController vengono creati dallo storyboard "Main" indicato in Info.plist.
+// Tenuto in questo file (non in uno nuovo) per non dover modificare il progetto Xcode.
+class SceneDelegate: UIResponder, UIWindowSceneDelegate {
+
+    var window: UIWindow?
+
+    func scene(_ scene: UIScene, willConnectTo session: UISceneSession, options connectionOptions: UIScene.ConnectionOptions) {
+        // app aperta tramite un link: inoltra a Capacitor come faceva l'AppDelegate
+        for context in connectionOptions.urlContexts {
+            _ = ApplicationDelegateProxy.shared.application(UIApplication.shared, open: context.url, options: [:])
+        }
+        if let activity = connectionOptions.userActivities.first {
+            _ = ApplicationDelegateProxy.shared.application(UIApplication.shared, continue: activity, restorationHandler: { _ in })
+        }
+    }
+
+    func scene(_ scene: UIScene, openURLContexts URLContexts: Set<UIOpenURLContext>) {
+        for context in URLContexts {
+            _ = ApplicationDelegateProxy.shared.application(UIApplication.shared, open: context.url, options: [:])
+        }
+    }
+
+    func scene(_ scene: UIScene, continue userActivity: NSUserActivity) {
+        _ = ApplicationDelegateProxy.shared.application(UIApplication.shared, continue: userActivity, restorationHandler: { _ in })
+    }
+}
