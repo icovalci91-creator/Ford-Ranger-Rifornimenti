@@ -50,13 +50,25 @@ class AppDelegate: UIResponder, UIApplicationDelegate {
 
 // Ciclo di vita a scene (UIScene): obbligatorio per le app compilate con l'SDK di iOS 27,
 // altrimenti l'app va in crash all'avvio (_UIApplicationEvaluateRuntimeIssueForNoSceneLifecycleAdoption).
-// La finestra e il CAPBridgeViewController vengono creati dallo storyboard "Main" indicato in Info.plist.
-// Tenuto in questo file (non in uno nuovo) per non dover modificare il progetto Xcode.
+// Stessa soluzione collaudata sull'app Ecotoce (22/09/2026):
+// - la classe sta in QUESTO file, che è già in "Compile Sources": un file nuovo non registrato
+//   nel progetto non verrebbe compilato → iOS non trova la classe → schermo NERO, senza crash;
+// - @objc(SceneDelegate): l'Info.plist la cita come "SceneDelegate", senza prefisso del modulo;
+// - se lo storyboard non crea la finestra, la costruisco a mano invece di restare su schermo nero.
+@objc(SceneDelegate)
 class SceneDelegate: UIResponder, UIWindowSceneDelegate {
 
     var window: UIWindow?
 
     func scene(_ scene: UIScene, willConnectTo session: UISceneSession, options connectionOptions: UIScene.ConnectionOptions) {
+        // Con UISceneStoryboardFile = Main la finestra (CAPBridgeViewController) la crea UIKit.
+        // Rete di sicurezza: se non è arrivata, la creo io.
+        if window == nil, let windowScene = scene as? UIWindowScene {
+            let w = UIWindow(windowScene: windowScene)
+            w.rootViewController = CAPBridgeViewController()
+            window = w
+            w.makeKeyAndVisible()
+        }
         // app aperta tramite un link: inoltra a Capacitor come faceva l'AppDelegate
         for context in connectionOptions.urlContexts {
             _ = ApplicationDelegateProxy.shared.application(UIApplication.shared, open: context.url, options: [:])

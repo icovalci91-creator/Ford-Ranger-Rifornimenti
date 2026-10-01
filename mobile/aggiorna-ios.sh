@@ -5,11 +5,21 @@
 set -e
 cd "$(dirname "$0")/.."   # radice del repository
 
-echo "→ Scarico gli aggiornamenti da GitHub..."
-git fetch origin main
+# 1) Esegue sempre la versione PIÙ RECENTE di questo script (presa da GitHub),
+#    così un elenco di file vecchio non può lasciare il progetto a metà.
+if [ "$1" != "--aggiornato" ]; then
+  echo "→ Scarico gli aggiornamenti da GitHub..."
+  git fetch origin main
+  TMP="$(mktemp -t aggiorna-ios.XXXXXX)"
+  git show origin/main:mobile/aggiorna-ios.sh > "$TMP"
+  exec bash "$TMP" --aggiornato "$(pwd)"
+fi
+[ -n "$2" ] && cd "$2"
+
+# 2) Prende da GitHub solo i file necessari (il progetto Xcode resta il tuo)
 git checkout origin/main -- \
   index.html sw.js logo.png apple-touch-icon.png preload_bimestri.json \
-  mobile/build-www.mjs mobile/package.json mobile/IOS_SETUP.md \
+  mobile/aggiorna-ios.sh mobile/build-www.mjs mobile/package.json mobile/IOS_SETUP.md \
   mobile/ios/App/Podfile mobile/ios/App/App/Info.plist mobile/ios/App/App/AppDelegate.swift
 
 cd mobile
@@ -22,8 +32,18 @@ echo "→ Sincronizzo con Xcode (reinstalla i pod)..."
 npx cap sync ios
 
 echo
-echo "→ Controllo: deployment target dei pod (deve comparire SOLO 15.0):"
-grep "IPHONEOS_DEPLOYMENT_TARGET" ios/App/Pods/Pods.xcodeproj/project.pbxproj | sort | uniq -c
-echo "→ Versione webapp inclusa: $(grep -o "APP_VER='[^']*'" www/index.html)"
-echo
-echo "✓ Fatto. Ora: npx cap open ios → Product › Clean Build Folder → aumenta Build → Archive (o Run)."
+echo "================ CONTROLLI ================"
+ok=1
+if grep -q "@objc(SceneDelegate)" ios/App/App/AppDelegate.swift && grep -q "<string>SceneDelegate</string>" ios/App/App/Info.plist; then
+  echo "✓ SceneDelegate presente (niente schermo nero all'avvio)"
+else
+  echo "✗ SceneDelegate MANCANTE: non compilare, manda una foto di questo messaggio"; ok=0
+fi
+if grep "IPHONEOS_DEPLOYMENT_TARGET" ios/App/Pods/Pods.xcodeproj/project.pbxproj | grep -qv "15.0"; then
+  echo "✗ Alcuni pod non sono a iOS 15.0:"; grep "IPHONEOS_DEPLOYMENT_TARGET" ios/App/Pods/Pods.xcodeproj/project.pbxproj | sort | uniq -c; ok=0
+else
+  echo "✓ Pod a iOS 15.0"
+fi
+echo "✓ Versione webapp: $(grep -o "APP_VER='[^']*'" www/index.html)"
+echo "==========================================="
+[ $ok = 1 ] && echo "Fatto. Ora: npx cap open ios → Product › Clean Build Folder → Build +1 → Archive (o Run)."
