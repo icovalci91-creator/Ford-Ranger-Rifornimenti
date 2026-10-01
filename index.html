@@ -39,7 +39,7 @@ html,body{height:100%;background:var(--bg);color:var(--tx);font-family:'Barlow',
 .tab.tg{color:var(--g);border-bottom-color:var(--g)}
 
 /* SCROLL */
-.scroll{flex:1;overflow-y:auto;-webkit-overflow-scrolling:touch;padding:16px 14px calc(var(--sb)+20px)}
+.scroll{flex:1;overflow-y:auto;-webkit-overflow-scrolling:touch;padding:16px 14px calc(var(--sb) + 20px)}
 
 /* CARDS */
 .card{background:var(--bg2);border:1px solid var(--bd);border-radius:8px;padding:16px;margin-bottom:12px}
@@ -148,7 +148,7 @@ html,body{height:100%;background:var(--bg);color:var(--tx);font-family:'Barlow',
 
 /* MODAL */
 .mov{position:fixed;inset:0;background:rgba(0,0,0,.85);z-index:100;display:flex;align-items:flex-end}
-.mo{background:var(--bg2);border-top:2px solid var(--o);border-radius:16px 16px 0 0;padding:20px 18px calc(var(--sb)+20px);width:100%;max-height:85vh;overflow-y:auto}
+.mo{background:var(--bg2);border-top:2px solid var(--o);border-radius:16px 16px 0 0;padding:20px 18px calc(var(--sb) + 20px);width:100%;max-height:85vh;overflow-y:auto}
 .mo.mg{border-top-color:var(--g)}
 .motitle{font-family:'Barlow Condensed',sans-serif;font-size:14px;font-weight:700;letter-spacing:3px;text-transform:uppercase;margin-bottom:14px}
 .mox{float:right;background:none;border:none;color:var(--mu);font-size:20px;cursor:pointer}
@@ -615,6 +615,7 @@ function render(){
   const el=document.getElementById('main');
   if(!el)return;
   autoChiudiBimestri();
+  aggiornaBadgeRimborso();
   if(tab==='ciclo')el.innerHTML=rCiclo();
   else if(tab==='rimborso')el.innerHTML=rRimborso();
   else if(tab==='storico')el.innerHTML=rStorico();
@@ -774,14 +775,18 @@ function saveRicLav(){
 }
 function resetCycle(){
   askConfirm('Azzerare il ciclo corrente?',()=>{
+    const snap=snapDati();
     cycle={cruscotto:null,scontrino:null,ricCasa:null,ricLav:null};
     LS.set('rt_cycle',cycle);render();
+    offriAnnulla('Ciclo azzerato',snap);
   });
 }
 function clearStep(k){
   const lbls={cruscotto:'Foto Cruscotto',scontrino:'Scontrino Pompa',ricCasa:'Ricariche Casa',ricLav:'Ricariche Lavoro'};
   askConfirm('Azzerare "'+lbls[k]+'"? Potrai rifare questo passaggio.',()=>{
-    cycle[k]=null;LS.set('rt_cycle',cycle);render();showToast('✓ '+lbls[k]+' azzerato',true);
+    const snap=snapDati();
+    cycle[k]=null;LS.set('rt_cycle',cycle);render();
+    offriAnnulla(lbls[k]+' azzerato',snap);
   });
 }
 function saveFinal(){
@@ -831,6 +836,25 @@ function rRimborso(){
     <div style="font-size:10px;color:var(--mu)">Aperto in automatico · si chiude da solo a fine bimestre</div></div>
     ${bimArch.length>0?`<button class="btn bgh bsm" onclick="toggleArchSec()">📦 Archivio (${bimArch.length})${daPagare.length?`<br/><span style="color:var(--o)">${daPagare.length} da pagare</span>`:''}</button>`:''}
   </div>`;
+  // Promemoria: bimestri pronti da inviare in azienda e invii da sollecitare
+  const pr=promemoriaRimborso();
+  if(pr.pronti.length){
+    h+=`<div style="background:rgba(34,197,94,.08);border:1px solid var(--g);border-radius:8px;padding:10px 14px;margin-bottom:10px;font-size:12px">
+      <div style="margin-bottom:6px">📤 <strong>Pronti da inviare in azienda</strong> <span style="color:var(--mu)">· bolletta caricata, importo definitivo</span></div>
+      ${pr.pronti.map(({b,i})=>`<div style="display:flex;align-items:center;gap:8px;padding:6px 0;border-top:1px solid var(--bd)">
+        <span style="flex:1">${es(b.label)} · <strong>€ ${Math.ceil(n(b.totImp))},00</strong></span>
+        <button class="btn bgh bsm" onclick="doPrint('rimborso',${i})">⬇️ PDF</button>
+        <button class="btn bg bsm" onclick="segnaInviato(${i})">📤 Inviato</button>
+      </div>`).join('')}</div>`;
+  }
+  if(pr.sollecito.length){
+    h+=`<div style="background:rgba(249,115,22,.08);border:1px solid var(--o);border-radius:8px;padding:10px 14px;margin-bottom:10px;font-size:12px">
+      <div style="margin-bottom:6px">⏰ <strong>Inviati ma non ancora pagati</strong></div>
+      ${pr.sollecito.map(({b,i})=>`<div style="display:flex;align-items:center;gap:8px;padding:6px 0;border-top:1px solid var(--bd)">
+        <span style="flex:1">${es(b.label)} · € ${Math.ceil(n(b.totImp))},00 · <span style="color:var(--o)">inviato ${giorniDa(b.inviato)} giorni fa</span></span>
+        <button class="btn bg bsm" onclick="openPagMo(${i})">✓ Pagato</button>
+      </div>`).join('')}</div>`;
+  }
   if(inAttesa.length){
     h+=`<div style="background:rgba(249,115,22,.08);border:1px solid var(--o);border-radius:8px;padding:10px 14px;margin-bottom:10px;font-size:12px;cursor:pointer" onclick="sw('bolletta')">
       ⏳ In attesa di bolletta: <strong>${inAttesa.map(b=>es(b.label)).join(', ')}</strong><br/>
@@ -916,7 +940,7 @@ function rRimborso(){
   bimArch.forEach((b,i)=>{
     const pagato=!!b.pagato;
     const bc=pagato?'var(--g)':'rgba(249,115,22,.5)';
-    const badge=(pagato?`<span class="badge-pagato">✓ PAGATO ${fd(b.dataPag)}</span>`:`<span class="badge-attesa">⏳ DA PAGARE</span>`)
+    const badge=(pagato?`<span class="badge-pagato">✓ PAGATO ${fd(b.dataPag)}</span>`:b.inviato?`<span class="badge-attesa">📤 INVIATO ${fd(b.inviato)}</span>`:`<span class="badge-attesa">⏳ DA PAGARE</span>`)
       +(b.stima?` <span class="badge-attesa" style="background:rgba(85,85,85,.25);color:var(--tx)">≈ STIMA · attesa bolletta</span>`:'');
     h+=`<div class="bcard" style="border:1px solid ${bc}">
       <div class="bcard-hdr" onclick="toggleBimD(${i})">
@@ -942,6 +966,7 @@ function rRimborso(){
         </div>
         <div class="brow" style="margin-top:12px">
           <button class="btn bgh bsm" onclick="doPrint('rimborso',${i})">⬇️ PDF Rimborso</button>
+          ${!pagato?(b.inviato?`<button class="btn bgh bsm" onclick="annullaInvio(${i})">↩️ Non inviato</button>`:`<button class="btn bgh bsm" onclick="segnaInviato(${i})">📤 Segna inviato</button>`):''}
           ${!pagato?`<button class="btn bg bsm" onclick="openPagMo(${i})">✓ Segna pagato</button>`:`<div class="brow"><button class="btn bgh bsm" onclick="doPrint('ricevuta',${i})">🧾 PDF Ricevuta</button><button class="btn bsm" style="border:1px solid var(--r);color:var(--r);background:transparent;padding:8px 14px;font-family:'Barlow Condensed',sans-serif;font-size:11px;font-weight:700;letter-spacing:2px;text-transform:uppercase;border-radius:5px;cursor:pointer" onclick="annullaPag(${i})">↩️ Annulla</button></div>`}
           <button class="delbtn" onclick="delBim(${i})">✕</button>
         </div>
@@ -989,6 +1014,7 @@ function toggleArchSec(){
 function delRicArch(bi,id){
   const b=bimArch[bi];if(!b)return;
   askConfirm('Eliminare questa ricarica da '+b.label+'?'+(b.pagato?' Il bimestre risulta già pagato.':''),()=>{
+    offriAnnulla('Ricarica eliminata da '+b.label,snapDati());
     b.ricariche=(b.ricariche||[]).filter(r=>r.id!==id);
     ricalcolaBim(b);
     LS.set('rt_bimarch',bimArch);render();
@@ -1005,17 +1031,25 @@ function saveRicManuale(){
   ricAz.sort((a,b)=>b.data>a.data?1:-1);
   LS.set('rt_ricaz',ricAz);closeMo('mo-ric');render();
 }
-function delRic(id){ricAz=ricAz.filter(r=>r.id!==id);LS.set('rt_ricaz',ricAz);render()}
+function delRic(id){
+  const snap=snapDati();
+  ricAz=ricAz.filter(r=>r.id!==id);LS.set('rt_ricaz',ricAz);render();
+  offriAnnulla('Ricarica eliminata',snap);
+}
 function svuotaBim(){
   askConfirm('Svuotare il bimestre corrente?',()=>{
-    const curMs=bimMonths(curBim());
-    ricAz=ricAz.filter(r=>!curMs.includes((r.data||'').substring(0,7)));
+    const snap=snapDati(),cur=curBim();
+    const nRic=ricAz.filter(r=>bimOfRic(r)===cur).length;
+    ricAz=ricAz.filter(r=>bimOfRic(r)!==cur);
     LS.set('rt_ricaz',ricAz);render();
+    offriAnnulla(nRic+' ricariche eliminate',snap);
   });
 }
 function delBim(i){
   askConfirm('Eliminare questo bimestre archiviato?',()=>{
+    const snap=snapDati(),lbl=bimArch[i]?.label||'';
     bimArch.splice(i,1);LS.set('rt_bimarch',bimArch);render();
+    offriAnnulla(lbl+' eliminato',snap);
   });
 }
 function openFotoAz(){
@@ -1052,12 +1086,158 @@ function salvaPag(){
   closeMo('mo-pag');render();
   setTimeout(()=>doPrint('ricevuta',idx),400);
 }
+// ── INVIO ALL'AZIENDA E PROMEMORIA ──
+function giorniDa(d){return d?Math.floor((new Date(td()+'T12:00:00')-new Date(d+'T12:00:00'))/86400000):0}
+const GIORNI_SOLLECITO=30;
+function promemoriaRimborso(){
+  const pronti=[],sollecito=[];
+  bimArch.forEach((b,i)=>{
+    if(b.pagato||!(n(b.totImp)>0))return;
+    if(!b.inviato&&!b.stima)pronti.push({b,i});
+    else if(b.inviato&&giorniDa(b.inviato)>=GIORNI_SOLLECITO)sollecito.push({b,i});
+  });
+  return{pronti,sollecito};
+}
+function segnaInviato(i){
+  const b=bimArch[i];if(!b)return;
+  b.inviato=td();LS.set('rt_bimarch',bimArch);render();
+  showToast('📤 '+b.label+' segnato come inviato · ti avviso se dopo '+GIORNI_SOLLECITO+' giorni non risulta pagato',true);
+}
+function annullaInvio(i){
+  const b=bimArch[i];if(!b)return;
+  delete b.inviato;LS.set('rt_bimarch',bimArch);render();
+}
+// pallino sul tab Rimborso con il numero di cose da fare
+function aggiornaBadgeRimborso(){
+  const el=document.getElementById('tb-rimborso');if(!el)return;
+  const pr=promemoriaRimborso(),nAz=pr.pronti.length+pr.sollecito.length;
+  // badge agganciato all'icona, come le notifiche delle app su iPhone
+  el.innerHTML=`<span style="position:relative;display:inline-block">🏢${nAz?`<span aria-label="${nAz} da fare" style="position:absolute;top:-8px;left:-11px;min-width:15px;height:15px;line-height:15px;border-radius:8px;background:var(--o);color:#000;font-size:9px;font-weight:700;padding:0 3px;letter-spacing:0;text-align:center">${nAz}</span>`:''}</span> Rimborso`;
+}
 function annullaPag(idx){
   askConfirm('Annullare il pagamento?',()=>{
     bimArch[idx].pagato=false;
     delete bimArch[idx].dataPag;delete bimArch[idx].notePag;
     LS.set('rt_bimarch',bimArch);render();
   });
+}
+
+// ══════════════════════════════════════════════════════════════════════════════
+// GRAFICI STORICO (SVG, nessuna libreria: funzionano offline e nell'app iOS)
+// ══════════════════════════════════════════════════════════════════════════════
+// colori di identità dell'app, un tono più scuri: validati per daltonismo e contrasto sullo sfondo scuro
+const GC={benz:'#ea580c',casa:'#3b82f6',lav:'#16a34a'};
+const GL={benz:'Benzina',casa:'Casa',lav:'Lavoro (rimborsato)'};
+let gSel=null,gTab=false;
+function datiMensili(){
+  const per={};
+  hist.forEach(hh=>{
+    const m=(hh.data||'').substring(0,7);if(!/^\d{4}-\d{2}$/.test(m))return;
+    const cKCa=n(hh.costoKwhCasa)||coeffCasaForBim(bimKey(hh.data));
+    const d=per[m]=per[m]||{benz:0,casa:0,lav:0,km:0,cicli:0};
+    d.benz+=n(hh.costoBenz);d.casa+=n(hh.costoEC)||r2(n(hh.kwhCasa)*cKCa);d.lav+=n(hh.rimborso);
+    d.km+=n(hh.km);d.cicli++;
+  });
+  const keys=Object.keys(per).sort();if(!keys.length)return[];
+  // mesi consecutivi (anche vuoti) fino a 12, così i buchi si vedono
+  const last=keys[keys.length-1];
+  const out=[];
+  let [y,mo]=last.split('-').map(Number);
+  for(let i=0;i<12;i++){
+    const k=`${y}-${String(mo).padStart(2,'0')}`;
+    if(k<keys[0])break;
+    const d=per[k]||{benz:0,casa:0,lav:0,km:0,cicli:0};
+    d.m=k;d.tot=d.benz+d.casa+d.lav;d.ekm=d.km>0?d.tot/d.km:null;
+    out.unshift(d);
+    if(--mo<1){mo=12;y--}
+  }
+  return out;
+}
+function meseLbl(m,lungo){const[y,mo]=m.split('-');const d=new Date(+y,+mo-1,1);return lungo?d.toLocaleDateString('it-IT',{month:'long',year:'numeric'}):d.toLocaleDateString('it-IT',{month:'short'}).replace('.','')}
+function niceMax(v){if(!(v>0))return 1;const p=Math.pow(10,Math.floor(Math.log10(v)));for(const s of[1,1.5,2,2.5,3,4,5,6,8,10])if(s*p>=v)return s*p;return 10*p}
+function eur(v,d=0){return'€ '+v.toFixed(d).replace('.',',')}
+// rettangolo con angoli superiori arrotondati (estremità dati), base piatta sull'asse
+function pathTop(x,y,w,h,r){r=Math.min(r,h,w/2);return`M${x},${y+h}V${y+r}Q${x},${y} ${x+r},${y}H${x+w-r}Q${x+w},${y} ${x+w},${y+r}V${y+h}Z`}
+function gSelect(i){if(i===gSel)return;gSel=i;const el=document.getElementById('graf');if(el)el.outerHTML=rGrafici()}
+function gToggleTab(){gTab=!gTab;const el=document.getElementById('graf');if(el)el.outerHTML=rGrafici()}
+function rGrafici(){
+  const D=datiMensili();
+  if(D.length<1)return'';
+  const sel=gSel!==null&&gSel<D.length?gSel:D.length-1;
+  const N=D.length,W=340,ML=40,MR=8;
+  const plotW=W-ML-MR,slot=plotW/N,bw=Math.min(22,slot*0.62);
+  const cx=i=>ML+slot*i+slot/2;
+  const mu='#555',grid='#2a2a2a',ink='#deded6';
+  let h=`<div id="graf" class="card" style="padding:14px 12px">
+    <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px">
+      <div class="ctitle" style="margin:0">📊 Andamento</div>
+      <button class="btn bgh bsm" onclick="gToggleTab()">${gTab?'📊 Grafici':'📋 Tabella'}</button>
+    </div>`;
+  if(gTab){
+    h+=`<div style="overflow-x:auto"><table style="width:100%;border-collapse:collapse;font-size:11px;white-space:nowrap">
+      <tr style="color:var(--mu);text-align:right"><th style="text-align:left;padding:4px">Mese</th><th>Benzina</th><th>Casa</th><th>Lavoro</th><th>Totale</th><th>km</th><th style="padding-right:4px">€/km</th></tr>
+      ${D.map(d=>`<tr style="border-top:1px solid var(--bd);text-align:right"><td style="text-align:left;padding:5px 4px">${meseLbl(d.m,true)}</td><td>${eur(d.benz,2)}</td><td>${eur(d.casa,2)}</td><td>${eur(d.lav,2)}</td><td><strong>${eur(d.tot,2)}</strong></td><td>${d.km?Math.round(d.km):'—'}</td><td style="padding-right:4px">${d.ekm!==null?eur(d.ekm,3):'—'}</td></tr>`).join('')}
+    </table></div></div>`;
+    return h;
+  }
+  // ── Grafico 1: costi mensili impilati ──
+  const H1=170,MT=18,MB=20,pH=H1-MT-MB,base=MT+pH;
+  const ymax=niceMax(Math.max(...D.map(d=>d.tot)));
+  const ys=v=>pH*v/ymax;
+  let s=`<svg viewBox="0 0 ${W} ${H1}" style="width:100%;height:auto;display:block" role="img" aria-label="Costi mensili per categoria">`;
+  [0,.5,1].forEach(f=>{const y=base-pH*f;s+=`<line x1="${ML}" x2="${W-MR}" y1="${y}" y2="${y}" stroke="${grid}" stroke-width="1"/><text x="${ML-6}" y="${y+3}" fill="${mu}" font-size="9" text-anchor="end">${eur(ymax*f)}</text>`});
+  D.forEach((d,i)=>{
+    if(i===sel)s+=`<rect x="${ML+slot*i}" y="${MT-6}" width="${slot}" height="${pH+6}" fill="#ffffff" fill-opacity=".05"/>`;
+    const x=cx(i)-bw/2;let cum=0;
+    const segs=['benz','casa','lav'].filter(k=>d[k]>0);
+    segs.forEach((k,j)=>{
+      const hh=ys(d[k]);const top=base-cum-hh;
+      const gap=j>0&&hh>3?2:0; // 2px di stacco tra i segmenti
+      const op=i===sel?1:.85;
+      if(j===segs.length-1)s+=`<path d="${pathTop(x,top,bw,Math.max(hh-gap,0.5),4)}" fill="${GC[k]}" fill-opacity="${op}"/>`;
+      else s+=`<rect x="${x}" y="${top}" width="${bw}" height="${Math.max(hh-gap,0.5)}" fill="${GC[k]}" fill-opacity="${op}"/>`;
+      cum+=hh;
+    });
+    if(i===sel&&d.tot>0)s+=`<text x="${cx(i)}" y="${base-cum-5}" fill="${ink}" font-size="10" font-weight="700" text-anchor="middle">${eur(d.tot)}</text>`;
+    s+=`<text x="${cx(i)}" y="${H1-6}" fill="${i===sel?ink:mu}" font-size="9" text-anchor="middle">${meseLbl(d.m)}</text>`;
+    s+=`<rect x="${ML+slot*i}" y="0" width="${slot}" height="${H1}" fill="transparent" style="cursor:pointer" onclick="gSelect(${i})" onmouseenter="if(matchMedia('(hover:hover)').matches)gSelect(${i})"/>`;
+  });
+  s+='</svg>';
+  // legenda (sempre presente con più serie) + dettaglio del mese selezionato
+  const ds=D[sel];
+  const sw=k=>`<span style="display:inline-block;width:10px;height:10px;border-radius:2px;background:${GC[k]};vertical-align:-1px;margin-right:5px"></span>`;
+  h+=`<div style="display:flex;gap:12px;flex-wrap:wrap;font-size:11px;color:var(--tx);margin-bottom:4px">${['benz','casa','lav'].map(k=>`<span>${sw(k)}${GL[k]}</span>`).join('')}</div>`;
+  h+=`<div style="font-size:9px;letter-spacing:2px;text-transform:uppercase;color:var(--mu);margin:6px 0 2px">Costi mensili</div>${s}`;
+  h+=`<div style="background:var(--bg3);border-radius:6px;padding:10px 12px;margin:8px 0 14px;font-size:12px">
+    <div style="display:flex;justify-content:space-between;margin-bottom:6px"><strong style="text-transform:capitalize">${meseLbl(ds.m,true)}</strong><span style="color:var(--mu)">${ds.cicli} ${ds.cicli===1?'ciclo':'cicli'}</span></div>
+    ${['benz','casa','lav'].map(k=>`<div style="display:flex;justify-content:space-between;padding:2px 0"><span>${sw(k)}${GL[k]}</span><span>${eur(ds[k],2)}</span></div>`).join('')}
+    <div style="display:flex;justify-content:space-between;padding:5px 0 0;margin-top:4px;border-top:1px solid var(--bd);font-weight:700"><span>Totale</span><span>${eur(ds.tot,2)}</span></div>
+    <div style="display:flex;justify-content:space-between;padding-top:2px;color:var(--mu)"><span>${ds.km?Math.round(ds.km)+' km':'km non inseriti'}</span><span>${ds.ekm!==null?eur(ds.ekm,3)+'/km':''}</span></div>
+  </div>`;
+  // ── Grafico 2: costo per km (una sola serie, nessuna legenda: il titolo la nomina) ──
+  const pts=D.map((d,i)=>({i,v:d.ekm}));
+  if(pts.some(p=>p.v!==null)){
+    const H2=120,T2=12,B2=20,p2=H2-T2-B2,b2=T2+p2;
+    const m2=niceMax(Math.max(...pts.filter(p=>p.v!==null).map(p=>p.v)));
+    const y2=v=>b2-p2*v/m2;
+    let s2=`<svg viewBox="0 0 ${W} ${H2}" style="width:100%;height:auto;display:block" role="img" aria-label="Costo per km mensile">`;
+    [0,.5,1].forEach(f=>{const y=b2-p2*f;s2+=`<line x1="${ML}" x2="${W-MR}" y1="${y}" y2="${y}" stroke="${grid}" stroke-width="1"/><text x="${ML-6}" y="${y+3}" fill="${mu}" font-size="9" text-anchor="end">${(m2*f).toFixed(2).replace('.',',')}</text>`});
+    s2+=`<line x1="${cx(sel)}" x2="${cx(sel)}" y1="${T2-4}" y2="${b2}" stroke="${mu}" stroke-width="1" stroke-dasharray="3 3"/>`;
+    // linea spezzata dove mancano i km
+    let d2='',pen=false;
+    pts.forEach(p=>{if(p.v===null){pen=false;return}d2+=(pen?'L':'M')+cx(p.i)+','+y2(p.v);pen=true});
+    s2+=`<path d="${d2}" fill="none" stroke="${ink}" stroke-width="2" stroke-linejoin="round"/>`;
+    pts.forEach(p=>{if(p.v===null)return;s2+=`<circle cx="${cx(p.i)}" cy="${y2(p.v)}" r="${p.i===sel?5:4}" fill="${ink}" stroke="#181818" stroke-width="2"/>`});
+    if(pts[sel].v!==null)s2+=`<text x="${cx(sel)}" y="${y2(pts[sel].v)-9}" fill="${ink}" font-size="10" font-weight="700" text-anchor="middle">${pts[sel].v.toFixed(3).replace('.',',')}</text>`;
+    D.forEach((d,i)=>{
+      s2+=`<text x="${cx(i)}" y="${H2-6}" fill="${i===sel?ink:mu}" font-size="9" text-anchor="middle">${meseLbl(d.m)}</text>`;
+      s2+=`<rect x="${ML+slot*i}" y="0" width="${slot}" height="${H2}" fill="transparent" style="cursor:pointer" onclick="gSelect(${i})" onmouseenter="if(matchMedia('(hover:hover)').matches)gSelect(${i})"/>`;
+    });
+    s2+='</svg>';
+    h+=`<div style="font-size:9px;letter-spacing:2px;text-transform:uppercase;color:var(--mu);margin:0 0 2px">Costo per km (€/km)</div>${s2}`;
+  }
+  h+=`<div style="font-size:10px;color:var(--mu);margin-top:6px">Tocca un mese per il dettaglio · ultimi 12 mesi</div></div>`;
+  return h;
 }
 
 // ══════════════════════════════════════════════════════════════════════════════
@@ -1081,6 +1261,7 @@ function rStorico(){
     <div style="font-family:'Barlow Condensed',sans-serif;font-size:32px;font-weight:900;color:var(--o)">€ ${totTot.toFixed(2)}</div></div>
     <div style="text-align:right;font-size:11px;color:var(--mu)">⛽ € ${totB.toFixed(2)}<br/>🏠 € ${totEC.toFixed(2)}<br/>🏢 € ${totR.toFixed(2)}</div>
   </div>
+  ${rGrafici()}
   <button class="btn bo" style="margin-bottom:14px" onclick="openMo('mo-nrif')">➕ Aggiungi rifornimento mancante</button>`;
 
   hist.forEach(hh=>{
@@ -1153,7 +1334,11 @@ function rStorico(){
 
 function toggleOpen(id){sOpen[id]=!sOpen[id];if(sOpen[id])sDetail[id]=false;render()}
 function toggleDet(id){sDetail[id]=!sDetail[id];if(sDetail[id])sOpen[id]=false;render()}
-function delHist(id){askConfirm('Eliminare questo ciclo?',()=>{hist=hist.filter(h=>h.id!==id);LS.set('rt_hist',hist);render()})}
+function delHist(id){askConfirm('Eliminare questo ciclo?',()=>{
+  const snap=snapDati();
+  hist=hist.filter(h=>h.id!==id);LS.set('rt_hist',hist);render();
+  offriAnnulla('Ciclo eliminato',snap);
+})}
 function saveStorico(id){
   const idx=hist.findIndex(h=>h.id===id);if(idx===-1)return;
   const h=hist[idx];
@@ -1562,13 +1747,34 @@ async function extractBoll(file,tipo){
 
 // ── TOAST ────────────────────────────────────────────────────────────────────
 function showToast(msg,ok,err){
-  const t=document.createElement('div');
-  t.style.cssText='position:fixed;bottom:calc(env(safe-area-inset-bottom,0px)+80px);left:50%;transform:translateX(-50%);background:#222;border:1px solid '+(err?'var(--r)':ok?'var(--g)':'var(--o)')+';border-radius:8px;padding:10px 18px;font-size:13px;color:'+(err?'var(--r)':ok?'var(--g)':'var(--o)')+';z-index:300;max-width:calc(100% - 28px);width:max-content;text-align:center;line-height:1.4';
+  document.querySelectorAll('.rt-toast').forEach(x=>x.remove()); // un messaggio alla volta
+  const t=document.createElement('div');t.className='rt-toast';
+  t.style.cssText='position:fixed;bottom:calc(env(safe-area-inset-bottom,0px) + 80px);left:50%;transform:translateX(-50%);background:#222;border:1px solid '+(err?'var(--r)':ok?'var(--g)':'var(--o)')+';border-radius:8px;padding:10px 18px;font-size:13px;color:'+(err?'var(--r)':ok?'var(--g)':'var(--o)')+';z-index:300;max-width:calc(100% - 28px);width:max-content;text-align:center;line-height:1.4';
   t.textContent=msg;document.body.appendChild(t);
   if(ok||err)setTimeout(()=>{if(document.body.contains(t))document.body.removeChild(t)},msg.length>45?3500:2000);
   return t;
 }
 function removeToast(t){if(t&&document.body.contains(t))document.body.removeChild(t)}
+
+// ── ANNULLA: copia dei dati prima di un'eliminazione + barra "Annulla" per 7 secondi ──
+function snapDati(){return JSON.stringify({ricAz,bimArch,hist,cycle})}
+let undoTimer=null;
+function offriAnnulla(msg,snap){
+  const old=document.getElementById('undo-bar');if(old)old.remove();
+  document.querySelectorAll('.rt-toast').forEach(x=>x.remove());
+  clearTimeout(undoTimer);
+  const b=document.createElement('div');b.id='undo-bar';
+  b.style.cssText='position:fixed;bottom:calc(env(safe-area-inset-bottom,0px) + 80px);left:50%;transform:translateX(-50%);background:#222;border:1px solid var(--o);border-radius:8px;padding:8px 8px 8px 14px;font-size:13px;color:var(--tx);z-index:310;display:flex;gap:12px;align-items:center;width:max-content;max-width:calc(100% - 28px);box-shadow:0 8px 32px rgba(0,0,0,.8)';
+  b.innerHTML=`<span>${es(msg)}</span><button class="btn bo bsm" style="flex-shrink:0">↩️ Annulla</button>`;
+  b.querySelector('button').onclick=()=>{
+    const d=JSON.parse(snap);
+    ricAz=d.ricAz;bimArch=d.bimArch;hist=d.hist;cycle=d.cycle;
+    LS.set('rt_ricaz',ricAz);LS.set('rt_bimarch',bimArch);LS.set('rt_hist',hist);LS.set('rt_cycle',cycle);
+    clearTimeout(undoTimer);b.remove();render();showToast('✓ Ripristinato',true);
+  };
+  document.body.appendChild(b);
+  undoTimer=setTimeout(()=>b.remove(),7000);
+}
 
 // ══════════════════════════════════════════════════════════════════════════════
 // PRINT (window.print)
@@ -1805,7 +2011,7 @@ const isIOS=/iphone|ipad|ipod/i.test(navigator.userAgent);
 if(isIOS&&!window.navigator.standalone&&!LS.get('rt_hint',false)){
   setTimeout(()=>{
     const b=document.createElement('div');
-    b.style.cssText='position:fixed;bottom:calc(env(safe-area-inset-bottom,0px)+10px);left:50%;transform:translateX(-50%);background:#1a1a1a;border:1px solid #f97316;border-radius:10px;padding:10px 14px;font-size:11px;color:#ddd;text-align:center;z-index:200;width:calc(100% - 28px);max-width:360px;box-shadow:0 8px 32px rgba(0,0,0,.8)';
+    b.style.cssText='position:fixed;bottom:calc(env(safe-area-inset-bottom,0px) + 10px);left:50%;transform:translateX(-50%);background:#1a1a1a;border:1px solid #f97316;border-radius:10px;padding:10px 14px;font-size:11px;color:#ddd;text-align:center;z-index:200;width:calc(100% - 28px);max-width:360px;box-shadow:0 8px 32px rgba(0,0,0,.8)';
     b.innerHTML='📲 <strong style="color:#f97316">Safari → Condividi → "Aggiungi a Home"</strong><button onclick="this.parentNode.remove()" style="display:block;margin:6px auto 0;background:none;border:1px solid #444;color:#666;padding:3px 10px;border-radius:4px;font-size:10px;cursor:pointer">Chiudi</button>';
     document.body.appendChild(b);LS.set('rt_hint',true);
   },3000);
@@ -1820,7 +2026,7 @@ function backupReminder(){
   const msg=dsb===null?'Non hai mai salvato un backup dei tuoi dati.':'Sono passati '+dsb+' giorni dall\'ultimo backup.';
   const b=document.createElement('div');
   b.id='bk-reminder';
-  b.style.cssText='position:fixed;bottom:calc(env(safe-area-inset-bottom,0px)+10px);left:50%;transform:translateX(-50%);background:#1a1a1a;border:1px solid var(--r);border-radius:10px;padding:12px 14px;font-size:12px;color:#ddd;text-align:center;z-index:210;width:calc(100% - 28px);max-width:380px;box-shadow:0 8px 32px rgba(0,0,0,.8)';
+  b.style.cssText='position:fixed;bottom:calc(env(safe-area-inset-bottom,0px) + 10px);left:50%;transform:translateX(-50%);background:#1a1a1a;border:1px solid var(--r);border-radius:10px;padding:12px 14px;font-size:12px;color:#ddd;text-align:center;z-index:210;width:calc(100% - 28px);max-width:380px;box-shadow:0 8px 32px rgba(0,0,0,.8)';
   b.innerHTML=`<div style="margin-bottom:9px">⚠️ ${msg}<br/>Salva una copia per non rischiare di perderli.</div>
     <div style="display:flex;gap:8px">
       <button class="btn bo bsm" style="flex:1" onclick="document.getElementById('bk-reminder').remove();openMo('mo-backup')">💾 Backup ora</button>
