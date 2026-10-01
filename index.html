@@ -8,7 +8,7 @@
 <meta name="apple-mobile-web-app-title" content="RangerTrack"/>
 <meta name="theme-color" content="#0f0f0f"/>
 <meta http-equiv="Cache-Control" content="no-cache,no-store,must-revalidate"/>
-<title>RangerTrack v2026.10.01-1</title>
+<title>RangerTrack v2026.10.01-2</title>
 <link rel="apple-touch-icon" href="/apple-touch-icon.png"/>
 <link rel="preconnect" href="https://fonts.googleapis.com"/>
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@400;700;900&family=Barlow:wght@400;500&display=swap"/>
@@ -350,7 +350,7 @@ hr{border:none;border-top:1px solid var(--bd);margin:14px 0}
 </div>
 
 <script>
-const APP_VER='2026.10.01-1';
+const APP_VER='2026.10.01-2';
 // ── STORAGE ──────────────────────────────────────────────────────────────────
 const LS={
   get:(k,d)=>{try{const v=localStorage.getItem(k);return v!==null?JSON.parse(v):d}catch{return d}},
@@ -369,6 +369,40 @@ let bollRef=LS.get('rt_boll',null);
 let bimArch=LS.get('rt_bimarch',[]);
 let cycle=LS.get('rt_cycle',{cruscotto:null,scontrino:null,ricCasa:null,ricLav:null});
 let sOpen={}, sDetail={};
+
+// ── PULIZIA DATI ALL'AVVIO: un dato malformato non deve mai bloccare l'app ──
+(function puliziaDati(){
+  const isoData=d=>{ // "15/08/2026" o "15-08-26" → "2026-08-15"; lascia invariate le date ISO
+    if(typeof d!=='string')return d;
+    const m=d.trim().match(/^(\d{1,2})[\/.\-](\d{1,2})[\/.\-](\d{2}|\d{4})$/);
+    return m?`${m[3].length===2?'20'+m[3]:m[3]}-${m[2].padStart(2,'0')}-${m[1].padStart(2,'0')}`:d;
+  };
+  const arr=v=>Array.isArray(v)?v.filter(x=>x&&typeof x==='object'):[];
+  const fixRic=r=>{if(r.data)r.data=isoData(r.data);return r};
+  let cambiato=false;
+  const pulito=(v,f)=>{const a=arr(v).map(f);if(!Array.isArray(v)||a.length!==v.length||JSON.stringify(a)!==JSON.stringify(v))cambiato=true;return a};
+  ricAz=pulito(ricAz,fixRic);
+  hist=pulito(hist,h=>{if(h.data)h.data=isoData(h.data);return h});
+  bimArch=pulito(bimArch,b=>{b.ricariche=arr(b.ricariche).map(fixRic);if(!b.key&&b.label)b.key=b.label;return b});
+  if(!cycle||typeof cycle!=='object'){cycle={cruscotto:null,scontrino:null,ricCasa:null,ricLav:null};cambiato=true}
+  if(cambiato){LS.set('rt_ricaz',ricAz);LS.set('rt_hist',hist);LS.set('rt_bimarch',bimArch);LS.set('rt_cycle',cycle)}
+})();
+
+// ── ERRORI VISIBILI: se qualcosa va storto lo mostro sullo schermo (utile nell'app iOS) ──
+function mostraErrore(msg){
+  try{
+    let b=document.getElementById('err-bar');
+    if(!b){
+      b=document.createElement('div');b.id='err-bar';
+      b.style.cssText='position:fixed;top:calc(env(safe-area-inset-top,0px) + 8px);left:8px;right:8px;background:#2a0f0f;border:1px solid var(--r);border-radius:8px;padding:10px 12px;font-size:11px;color:#fca5a5;z-index:400;max-height:40vh;overflow:auto;white-space:pre-wrap;word-break:break-word';
+      b.onclick=()=>b.remove();
+      document.body.appendChild(b);
+    }
+    b.textContent='⚠️ Errore app (v'+APP_VER+') — fai uno screenshot e mandalo. Tocca per chiudere.\n\n'+String(msg).slice(0,600);
+  }catch{}
+}
+window.addEventListener('error',e=>mostraErrore((e.message||'errore')+(e.filename?' @'+e.filename.split('/').pop()+':'+e.lineno:'')));
+window.addEventListener('unhandledrejection',e=>{const r=e.reason;if(r&&/no key|abort|cancel/i.test(r.message||''))return;mostraErrore('Promise: '+(r&&r.message||r))});
 
 function saveAll(){LS.set('rt_hist',hist);LS.set('rt_ricaz',ricAz);LS.set('rt_boll',bollRef);LS.set('rt_bimarch',bimArch);LS.set('rt_cycle',cycle);LS.set('rt_kwh',costoKwh);LS.set('rt_gemini_key',geminiKey);LS.set('rt_luo_casa',luoCasa);LS.set('rt_luo_lav',luoLav);LS.set('rt_coeff_bim',LS.get('rt_coeff_bim',{}))}
 
@@ -615,13 +649,19 @@ function sw(t){
 function render(){
   const el=document.getElementById('main');
   if(!el)return;
-  autoChiudiBimestri();
-  aggiornaBadgeRimborso();
-  if(tab==='ciclo')el.innerHTML=rCiclo();
-  else if(tab==='rimborso')el.innerHTML=rRimborso();
-  else if(tab==='storico')el.innerHTML=rStorico();
-  else el.innerHTML=rBolletta();
-  attachEv();
+  // le funzioni automatiche non devono mai impedire di mostrare la schermata
+  try{autoChiudiBimestri()}catch(e){console.error(e);mostraErrore('Chiusura bimestri: '+e.message)}
+  try{aggiornaBadgeRimborso()}catch(e){console.error(e)}
+  try{
+    if(tab==='ciclo')el.innerHTML=rCiclo();
+    else if(tab==='rimborso')el.innerHTML=rRimborso();
+    else if(tab==='storico')el.innerHTML=rStorico();
+    else el.innerHTML=rBolletta();
+  }catch(e){
+    console.error(e);
+    el.innerHTML=`<div class="empty" style="border-color:var(--r);color:#fca5a5">⚠️ Questa schermata non si è caricata.<br/>Le altre tab funzionano. Manda uno screenshot di questo messaggio.<br/><br/><span style="font-size:11px">v${APP_VER} · ${es(e.message)}</span></div>`;
+  }
+  try{attachEv()}catch(e){console.error(e)}
 }
 
 // ══════════════════════════════════════════════════════════════════════════════
@@ -2010,7 +2050,8 @@ updateAiPill();
 
 // iOS install hint
 const isIOS=/iphone|ipad|ipod/i.test(navigator.userAgent);
-if(isIOS&&!window.navigator.standalone&&!LS.get('rt_hint',false)){
+const isNativeApp=!!(window.Capacitor&&window.Capacitor.isNativePlatform&&window.Capacitor.isNativePlatform());
+if(isIOS&&!isNativeApp&&!window.navigator.standalone&&!LS.get('rt_hint',false)){
   setTimeout(()=>{
     const b=document.createElement('div');
     b.style.cssText='position:fixed;bottom:calc(env(safe-area-inset-bottom,0px) + 10px);left:50%;transform:translateX(-50%);background:#1a1a1a;border:1px solid #f97316;border-radius:10px;padding:10px 14px;font-size:11px;color:#ddd;text-align:center;z-index:200;width:calc(100% - 28px);max-width:360px;box-shadow:0 8px 32px rgba(0,0,0,.8)';
