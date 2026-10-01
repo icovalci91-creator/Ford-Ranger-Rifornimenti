@@ -453,14 +453,14 @@ function bimFromPeriodo(periodo,dataInizio,dataFine){
   return null;
 }
 // opzioni per il selettore "bimestre di competenza": ultimi bimestri del calendario + archiviati
-function bimOptions(selKey){
+function bimOptions(selKey,casa){
   const cur=curBim();
   const keys=new Set();
   for(let i=0;i<7;i++)keys.add(bimShift(cur,-i));
-  bimArch.forEach(b=>{if(b.key)keys.add(b.key)});
+  if(!casa)bimArch.forEach(b=>{if(b.key)keys.add(b.key)});
   if(selKey)keys.add(selKey);
   return[...keys].sort().reverse().map(k=>{
-    const tag=k===cur?' (corrente)':bimArch.some(b=>b.key===k)?' (chiuso)':'';
+    const tag=k===cur?' (corrente)':!casa&&bimArch.some(b=>b.key===k)?' (chiuso)':'';
     return`<option value="${k}"${k===selKey?' selected':''}>${es(bimLbl(k)+tag)}</option>`;
   }).join('');
 }
@@ -471,19 +471,33 @@ function defaultBimBolletta(){
   return bimFromPeriodo(per)||bimShift(curBim(),-1);
 }
 // aggiorna il selettore e il suggerimento quando cambia il periodo
-function onPeriodoChange(){
-  const sel=document.getElementById('b-bim');if(!sel)return;
-  const k=bimFromPeriodo(document.getElementById('b-per')?.value);
-  const hint=document.getElementById('b-bim-hint');
-  if(k){sel.innerHTML=bimOptions(k);sel.value=k;onBimSelChange()}
+// p = prefisso dei campi: 'b' bolletta aziendale, 'bc' bolletta casa
+function onPeriodoChange(p='b'){
+  const sel=document.getElementById(p+'-bim');if(!sel)return;
+  const k=bimFromPeriodo(document.getElementById(p+'-per')?.value);
+  setBimSel(p,k);
+}
+// imposta selettore + suggerimento del bimestre di competenza
+function setBimSel(p,k){
+  const sel=document.getElementById(p+'-bim'),hint=document.getElementById(p+'-bim-hint');
+  if(sel&&k){sel.innerHTML=bimOptions(k,p==='bc');sel.value=k;onBimSelChange(p)}
   if(hint)hint.innerHTML=k?`✓ Riconosciuto dal periodo: <strong>${bimLbl(k)}</strong>`:'⚠️ Periodo non riconosciuto: verifica il bimestre';
 }
 // quando cambi bimestre nel selettore, mostra il suo coefficiente salvato (se c'è)
-function onBimSelChange(){
-  const k=document.getElementById('b-bim')?.value;const e=document.getElementById('b-coeff');
-  const m=LS.get('rt_coeff_bim',{});
-  if(e&&k&&m[k]!==undefined)e.value=n(m[k]).toFixed(5);
+function onBimSelChange(p='b'){
+  const k=document.getElementById(p+'-bim')?.value;const e=document.getElementById(p+'-coeff');
+  const m=LS.get(p==='bc'?'rt_coeff_casa_bim':'rt_coeff_bim',{});
+  if(e&&k&&m[k]!==undefined)e.value=n(m[k]).toFixed(p==='bc'?4:5);
 }
+// €/kWh casa del bimestre: bolletta casa del bimestre, altrimenti ultimo noto (stima)
+function coeffCasaInfo(key){
+  const m=LS.get('rt_coeff_casa_bim',{});
+  if(n(m[key]))return{v:n(m[key]),src:'bolletta'};
+  const g=n(LS.get('rt_kwh_casa',''));
+  if(g)return{v:g,src:'stima',from:LS.get('rt_kwh_casa_from','')};
+  return{v:n(costoKwh),src:n(costoKwh)?'stima':null}; // nessuna bolletta casa: ripiego sul prezzo aziendale
+}
+function coeffCasaForBim(key){return coeffCasaInfo(key).v}
 // Chiusura automatica: ogni ricarica di un bimestre già passato finisce nel suo bimestre archiviato
 // (creato o aggiornato), con il coefficiente della sua bolletta o la stima dell'ultimo noto.
 function autoChiudiBimestri(){
@@ -539,7 +553,7 @@ function openMo(id){
   }
   if(id==='mo-luoghi'){const c=document.getElementById('luo-casa');if(c)c.value=luoCasa;const v=document.getElementById('luo-lav');if(v)v.value=luoLav}
   if(id==='mo-nrif'){
-    const kc=document.getElementById('nr-kwcc');if(kc&&!kc.value)kc.value=LS.get('rt_kwh_casa','')?n(LS.get('rt_kwh_casa','')).toFixed(4):'';
+    const kc=document.getElementById('nr-kwcc');if(kc&&!kc.value){const v=coeffCasaForBim(curBim());kc.value=v?v.toFixed(4):''}
     const kl=document.getElementById('nr-kwla');if(kl&&!kl.value)kl.value=costoKwh?n(costoKwh).toFixed(5):'';
     const dd=document.getElementById('nr-data');if(dd&&!dd.value)dd.value=td();
   }
@@ -651,7 +665,7 @@ function rStepSum(k){
     <div class="exr"><span class="exk">Totale</span><span class="exv">€ ${tot.toFixed(2)}</span></div>
     ${d.staz?`<div class="exr"><span class="exk">Stazione</span><span style="font-size:12px">${es(d.staz)}</span></div>`:''}
   </div>`;}
-  if(k==='ricCasa'){const cK=n(LS.get('rt_kwh_casa','')||costoKwh);return`<div class="ex">
+  if(k==='ricCasa'){const cK=coeffCasaForBim(bimCiclo());return`<div class="ex">
     <div class="exr"><span class="exk">kWh Casa</span><span class="exv b">${n(d.kwh).toFixed(2)} kWh</span></div>
     ${cK>0?`<div class="exr"><span class="exk">Costo</span><span class="exv">€ ${r2(n(d.kwh)*cK).toFixed(2)}</span></div>`:''}
   </div>`;}
@@ -710,7 +724,7 @@ function rFinalSum(){
   const kmTerm=Math.max(0,kmPerc-kmEl);
   const kwhCasa=n(c.ricCasa?.kwh),kwhLav=n(c.ricLav?.kwh);
   const cKaz=coeffForBim(bimCiclo());                      // €/kWh aziendale del bimestre del ciclo
-  const cKcasa=n(LS.get('rt_kwh_casa','')||costoKwh);      // €/kWh casa
+  const cKcasa=coeffCasaForBim(bimCiclo());                // €/kWh casa del bimestre del ciclo
   const costoElCasa=kwhCasa*cKcasa;
   const rimborso=kwhLav*cKaz;
   const costoEl=costoElCasa+rimborso;                      // coerente con lo Storico (casa@casa + lavoro@az)
@@ -775,7 +789,8 @@ function saveFinal(){
   const litri=n(c.scontrino?.litri),prezzo=n(c.scontrino?.prezzo);
   const kwhCasa=n(c.ricCasa?.kwh),kwhLav=n(c.ricLav?.kwh);
   const cK=coeffForBim(bimCiclo());
-  const costoEC=r2(kwhCasa*n(LS.get('rt_kwh_casa','')||costoKwh));
+  const ciCasa=coeffCasaInfo(bimCiclo());
+  const costoEC=r2(kwhCasa*ciCasa.v);
   hist.unshift({
     id:Date.now(),data:c.cruscotto?.data||td(),
     staz:c.scontrino?.staz||'',
@@ -783,7 +798,7 @@ function saveFinal(){
     costoBenz:r2(litri*prezzo),
     km:c.cruscotto?.km,kmel:n(c.cruscotto?.kmel),
     kwhCasa,kwhLav,
-    costoKwhAz:String(cK),costoKwhCasa:LS.get('rt_kwh_casa','')||costoKwh,
+    costoKwhAz:String(cK),costoKwhCasa:String(ciCasa.v),casaStima:ciCasa.src!=='bolletta',
     costoEC,rimborso:r2(kwhLav*cK)
   });
   LS.set('rt_hist',hist);
@@ -1071,7 +1086,7 @@ function rStorico(){
   hist.forEach(hh=>{
     const isOpen=!!sOpen[hh.id],isDet=!!sDetail[hh.id];
     const cKAz=n(hh.costoKwhAz||costoKwh);
-    const cKCa=n(hh.costoKwhCasa||LS.get('rt_kwh_casa','')||costoKwh);
+    const cKCa=n(hh.costoKwhCasa)||coeffCasaForBim(bimKey(hh.data||''));
     const costoEC=n(hh.costoEC)||r2(n(hh.kwhCasa)*cKCa);
     const totCiclo=n(hh.costoBenz)+costoEC+n(hh.rimborso);
     const manca=!n(hh.kwhCasa)&&!costoEC;
@@ -1093,7 +1108,7 @@ function rStorico(){
         </div>
         <div class="hib" style="background:rgba(59,130,246,.08);${manca?'border:1px solid var(--r)':''}">
           <div class="hibl" style="color:var(--b)">🏠 Casa</div>
-          ${manca?`<div style="font-size:11px;color:var(--r)">kWh da inserire ✏️</div>`:`<div class="hibv" style="color:var(--b)">€ ${costoEC.toFixed(2)}</div><div class="hibsub">${n(hh.kwhCasa).toFixed(1)} kWh</div>`}
+          ${manca?`<div style="font-size:11px;color:var(--r)">kWh da inserire ✏️</div>`:`<div class="hibv" style="color:var(--b)">€ ${costoEC.toFixed(2)}</div><div class="hibsub">${n(hh.kwhCasa).toFixed(1)} kWh${hh.casaStima?' · <span style="color:var(--o)">≈ stima</span>':''}</div>`}
         </div>
         <div class="hib" style="background:rgba(249,115,22,.05)">
           <div class="hibl">💰 Totale</div>
@@ -1157,6 +1172,7 @@ function saveStorico(id){
     litri,prezzo,km,kmel,
     costoBenz:r2(n(litri)*n(prezzo)),
     kwhCasa,costoKwhCasa:cKwhCasa,costoEC,
+    casaStima:n(cKwhCasa)===n(h.costoKwhCasa)?!!h.casaStima:false, // prezzo cambiato a mano = definitivo
     kwhLav,costoKwhAz:cKwhAz,
     rimborso:r2(kwhLav*n(cKwhAz))
   };
@@ -1174,9 +1190,10 @@ function saveNRif(){
   const kwhLav=n(document.getElementById('nr-kwl')?.value);
   const cKwhAz=document.getElementById('nr-kwla')?.value.trim();
   const costoEC=r2(kwhCasa*n(cKwhCasa));
+  const ciC=coeffCasaInfo(bimKey(data));
   hist.push({id:Date.now(),data,staz:document.getElementById('nr-staz')?.value.trim()||'',
     litri,prezzo,km,kmel,costoBenz:r2(n(litri)*n(prezzo)),
-    kwhCasa,costoKwhCasa:cKwhCasa,costoEC,
+    kwhCasa,costoKwhCasa:cKwhCasa,costoEC,casaStima:ciC.src!=='bolletta'&&n(cKwhCasa)===ciC.v,
     kwhLav,costoKwhAz:cKwhAz,rimborso:r2(kwhLav*n(cKwhAz))
   });
   hist.sort((a,b)=>a.data<b.data?1:-1);
@@ -1188,8 +1205,6 @@ function saveNRif(){
 // BOLLETTA TAB
 // ══════════════════════════════════════════════════════════════════════════════
 function rBolletta(){
-  const cKCasa=n(LS.get('rt_kwh_casa',''));
-  const bCasa=LS.get('rt_boll_casa',null);
   const arch=LS.get('rt_boll_arch',[]);
   return`
   <div style="font-family:'Barlow Condensed',sans-serif;font-size:11px;font-weight:700;letter-spacing:3px;text-transform:uppercase;color:var(--o);margin-bottom:10px">🏢 Bolletta Aziendale</div>
@@ -1220,27 +1235,26 @@ function rBolletta(){
   <div style="font-family:'Barlow Condensed',sans-serif;font-size:11px;font-weight:700;letter-spacing:3px;text-transform:uppercase;color:var(--b);margin:18px 0 10px">🏠 Bolletta Casa</div>
   <div class="card" style="border-color:rgba(59,130,246,.3)">
     <div class="ctitle" style="font-size:12px">📄 Carica bolletta di casa</div>
-    <p class="info">Stessa logica bimestrale. Aggiornando il €/kWh, tutti i cicli del bimestre corrente vengono ricalcolati.</p>
+    <p class="info">Stessa logica dell'aziendale: la bolletta si aggancia al suo bimestre e ricalcola il costo casa dei cicli di quel bimestre. Finché manca, i cicli usano l'ultimo €/kWh noto come stima.</p>
     <div class="up" id="up-bca" onclick="document.getElementById('fi-bca').click()" style="border-color:rgba(59,130,246,.4)"><input type="file" accept="image/*,application/pdf" id="fi-bca" style="display:none"/>
     <div id="pv-bca"><div class="uico">🏠</div><div class="utxt">Tocca per caricare PDF o foto bolletta di casa</div></div></div>
     <div id="ld-bca" style="display:none" class="ld"><div class="sp" style="border-top-color:var(--b)"></div> Analisi...</div>
     <div id="res-bca"></div>
     <hr/>
-    <div class="fg"><div class="fl"><label>Periodo</label><input type="text" id="bc-per" placeholder="mar-apr 2026" value="${es(bCasa?.periodo||'')}"/></div>
-    <div class="fl"><label>Totale €</label><input type="text" id="bc-tot" placeholder="180.00" inputmode="decimal" value="${es(bCasa?.totaleFattura||'')}"/></div></div>
-    <div class="fg"><div class="fl"><label>kWh Totali</label><input type="text" id="bc-kwh" placeholder="620" inputmode="decimal" value="${es(bCasa?.consumoTot||'')}"/></div>
-    <div class="fl"><label>€/kWh</label><input type="text" id="bc-coeff" placeholder="0.2060" inputmode="decimal" value="${cKCasa?cKCasa.toFixed(4):''}"/></div></div>
+    <div class="fg"><div class="fl"><label>Periodo</label><input type="text" id="bc-per" placeholder="lug-ago 2026" oninput="onPeriodoChange('bc')"/></div>
+    <div class="fl"><label>Totale €</label><input type="text" id="bc-tot" placeholder="180.00" inputmode="decimal"/></div></div>
+    <div class="fg"><div class="fl"><label>kWh Totali</label><input type="text" id="bc-kwh" placeholder="620" inputmode="decimal"/></div>
+    <div class="fl"><label>€/kWh</label><input type="text" id="bc-coeff" placeholder="0.2060" inputmode="decimal"/></div></div>
+    <div class="fl" style="margin-bottom:4px"><label>Bimestre di competenza</label>
+      <select id="bc-bim" onchange="onBimSelChange('bc')" style="background:var(--bg3);border:1px solid var(--bd);border-radius:4px;padding:10px;color:var(--tx);font-size:15px;width:100%;color-scheme:dark">${bimOptions(bimShift(curBim(),-1),true)}</select></div>
+    <div id="bc-bim-hint" style="font-size:11px;color:var(--mu);margin-bottom:12px">Si imposta da solo leggendo il periodo. Se non leggibile: bimestre precedente.</div>
     <button class="btn" style="background:var(--b);color:#000" onclick="saveBollCasa()">💾 Salva e aggiorna storico</button>
   </div>
-  ${cKCasa?`<div style="background:rgba(59,130,246,.08);border:1px solid var(--b);border-radius:8px;padding:12px 16px;margin-bottom:14px;display:flex;justify-content:space-between;align-items:center">
-    <div><div style="font-size:9px;letter-spacing:2px;text-transform:uppercase;color:var(--b)">Costo casa</div>
-    <div style="font-family:'Barlow Condensed',sans-serif;font-size:24px;font-weight:900;color:var(--b)">€ ${cKCasa.toFixed(4)}<span style="font-size:13px;font-weight:400;color:var(--mu)">/kWh</span></div></div>
-    <div style="font-size:11px;color:var(--mu)">${bimLbl(curBim())}</div>
-  </div>`:''}
+  ${rStatoCasa()}
   ${arch.length>0?`<div style="font-size:9px;letter-spacing:3px;text-transform:uppercase;color:var(--mu);margin:16px 0 8px">📦 Storico Bollette</div>
   ${arch.map((b,i)=>`<div style="background:var(--bg2);border:1px solid var(--bd);border-radius:6px;padding:10px 12px;margin-bottom:8px;display:flex;justify-content:space-between;align-items:center">
-    <div><div style="font-size:11px;font-weight:600">${b.tipo==='casa'?'🏠':'🏢'} ${es(b.periodo||'—')}</div>
-    <div style="font-size:10px;color:var(--mu)">€ ${n(b.coeff).toFixed(5)}/kWh</div></div>
+    <div><div style="font-size:11px;font-weight:600">${b.tipo==='casa'?'🏠':'🏢'} ${es(b.periodo||'—')}${b.bimestre?` <span style="color:var(--mu);font-weight:400">· ${es(bimLbl(b.bimestre))}</span>`:''}</div>
+    <div style="font-size:10px;color:var(--mu)">€ ${n(b.coeff).toFixed(b.tipo==='casa'?4:5)}/kWh</div></div>
     <button class="delbtn" onclick="const a=LS.get('rt_boll_arch',[]);a.splice(${i},1);LS.set('rt_boll_arch',a);render()">✕</button>
   </div>`).join('')}`:''}`;
 }
@@ -1319,27 +1333,53 @@ function saveBollCasa(){
   const kwhtot=n(document.getElementById('bc-kwh')?.value);
   const manuale=n(document.getElementById('bc-coeff')?.value);
   let coeff=manuale;
-  if(!coeff&&totale>0&&kwhtot>0)coeff=r2(totale/kwhtot*10000)/10000;
+  if(!coeff&&totale>0&&kwhtot>0)coeff=Math.round(totale/kwhtot*10000)/10000;
   if(!coeff){showToast('Inserisci €/kWh o totale+kWh',false,true);return}
   const periodo=document.getElementById('bc-per')?.value.trim();
-  LS.set('rt_kwh_casa',String(coeff));
-  LS.set('rt_boll_casa',{periodo,totaleFattura:document.getElementById('bc-tot')?.value.trim(),consumoTot:document.getElementById('bc-kwh')?.value.trim(),costoKwh:coeff});
-  // Ricalcola storico bimestre corrente
-  const curMs=bimMonths(curBim());
-  let count=0;
+  const bimSel=document.getElementById('bc-bim')?.value||bimFromPeriodo(periodo)||bimShift(curBim(),-1);
+  const boll={periodo,totaleFattura:document.getElementById('bc-tot')?.value.trim(),consumoTot:document.getElementById('bc-kwh')?.value.trim(),costoKwh:coeff,bimestre:bimSel};
+  const map=LS.get('rt_coeff_casa_bim',{});map[bimSel]=coeff;LS.set('rt_coeff_casa_bim',map);
+  const bb=LS.get('rt_boll_casa_bim',{});bb[bimSel]=boll;LS.set('rt_boll_casa_bim',bb);
+  LS.set('rt_boll_casa',boll);
+  // la bolletta più recente diventa la stima per i bimestri ancora senza bolletta casa
+  const latest=Object.keys(map).filter(k=>n(map[k])).sort().pop();
+  const isLatest=latest===bimSel;
+  if(isLatest){LS.set('rt_kwh_casa',String(coeff));LS.set('rt_kwh_casa_from',bimSel)}
+  // ricalcola i cicli del bimestre della bolletta (+ aggiorna le stime dei bimestri successivi ancora senza bolletta)
+  let count=0,stime=0;
   hist=hist.map(h=>{
-    const hm=(h.data||'').substring(0,7);
-    if(curMs.includes(hm)&&n(h.kwhCasa)>0){
-      count++;
-      return{...h,costoKwhCasa:String(coeff),costoEC:r2(n(h.kwhCasa)*coeff)};
-    }
+    if(!(n(h.kwhCasa)>0))return h;
+    const k=bimKey(h.data||'');
+    if(k===bimSel){count++;return{...h,costoKwhCasa:String(coeff),costoEC:r2(n(h.kwhCasa)*coeff),casaStima:false}}
+    if(isLatest&&h.casaStima&&k>bimSel&&!n(map[k])){stime++;return{...h,costoKwhCasa:String(coeff),costoEC:r2(n(h.kwhCasa)*coeff)}}
     return h;
   });
   LS.set('rt_hist',hist);
   const arch=LS.get('rt_boll_arch',[]);
-  arch.unshift({tipo:'casa',periodo,coeff,data:td()});
+  arch.unshift({tipo:'casa',periodo,bimestre:bimSel,coeff,data:td()});
   LS.set('rt_boll_arch',arch);
-  render();showToast('✓ Bolletta casa salvata! € '+coeff.toFixed(4)+'/kWh · '+count+' cicli aggiornati',true);
+  render();
+  showToast('✓ Bolletta casa '+bimLbl(bimSel)+': € '+coeff.toFixed(4)+'/kWh · '+count+' cicli aggiornati'+(stime?' · '+stime+' stime aggiornate':''),true);
+}
+// riepilogo €/kWh casa per bimestre (tab Bolletta)
+function rStatoCasa(){
+  const cur=curBim();
+  const m=LS.get('rt_coeff_casa_bim',{});
+  const keys=new Set([cur,bimShift(cur,-1),bimShift(cur,-2)]);
+  Object.keys(m).forEach(k=>keys.add(k));
+  const rows=[...keys].sort().reverse().slice(0,6).map(k=>{
+    const ci=coeffCasaInfo(k);
+    const daStimare=hist.filter(h=>bimKey(h.data||'')===k&&n(h.kwhCasa)>0&&h.casaStima).length;
+    const stato=ci.src==='bolletta'?'<span style="color:var(--b)">📄 bolletta</span>':ci.v?`<span style="color:var(--o)">≈ stima${daStimare?' · '+daStimare+' cicli':''}</span>`:'<span style="color:var(--mu)">—</span>';
+    return`<div style="display:flex;justify-content:space-between;align-items:center;padding:6px 0;border-bottom:1px solid var(--bd);font-size:12px">
+      <span>${es(bimLbl(k))}${k===cur?' <span style="color:var(--mu)">(corrente)</span>':''}</span>
+      <span>${stato}</span>
+      <span style="font-family:'Barlow Condensed',sans-serif;font-size:15px;font-weight:700">${ci.v?'€ '+ci.v.toFixed(4):'—'}</span>
+    </div>`;
+  }).join('');
+  return`<div style="background:var(--bg2);border:1px solid var(--bd);border-radius:8px;padding:12px 14px;margin-bottom:14px">
+    <div style="font-size:9px;letter-spacing:2px;text-transform:uppercase;color:var(--b);margin-bottom:6px">€/kWh casa per bimestre</div>
+    ${rows}</div>`;
 }
 
 // ══════════════════════════════════════════════════════════════════════════════
@@ -1486,7 +1526,7 @@ async function extractBoll(file,tipo){
   const res=document.getElementById(rid);
   try{
     const prompt=isCasa
-      ?'Bolletta elettrica domestica. JSON puro:\n{"costoKwh":"","totaleKwh":"","totaleFattura":"","periodo":"","fornitore":""}\nSolo JSON.'
+      ?'Bolletta elettrica domestica. JSON puro:\n{"costoKwh":"","totaleKwh":"","totaleFattura":"","periodo":"","dataInizio":"","dataFine":"","fornitore":""}\ndataInizio/dataFine = periodo di fatturazione dei consumi in formato YYYY-MM-DD (non la data di emissione). Solo JSON.'
       :'Bolletta elettrica aziendale. JSON puro:\n{"costoKwh":"","totaleKwh":"","totaleFattura":"","scontoSoci":"","periodo":"","dataInizio":"","dataFine":"","dataEmissione":"","fornitore":"","numeroBolletta":""}\ncostoKwh=(totaleFattura-scontoSoci)/totaleKwh. dataInizio/dataFine = periodo di fatturazione dei consumi in formato YYYY-MM-DD (non la data di emissione). dataEmissione in formato YYYY-MM-DD. Solo JSON.';
     const j=await callGemini(file,prompt,600);
     const p=JSON.parse(j);
@@ -1506,13 +1546,10 @@ async function extractBoll(file,tipo){
       if(p.costoKwh){const e=document.getElementById('b-coeff');if(e)e.value=n(p.costoKwh).toFixed(5)}
     }
     // bimestre di competenza riconosciuto dal periodo (solo bolletta aziendale)
-    let bimRil=null;
-    if(!isCasa){
-      bimRil=bimFromPeriodo(p.periodo,p.dataInizio,p.dataFine);
-      const sel=document.getElementById('b-bim'),hint=document.getElementById('b-bim-hint');
-      if(sel&&bimRil){sel.innerHTML=bimOptions(bimRil);sel.value=bimRil}
-      if(hint)hint.innerHTML=bimRil?`✓ Riconosciuto dal periodo: <strong>${bimLbl(bimRil)}</strong>`:'⚠️ Periodo non riconosciuto: verifica il bimestre';
-    }
+    const bimRil=bimFromPeriodo(p.periodo,p.dataInizio,p.dataFine);
+    setBimSel(isCasa?'bc':'b',bimRil);
+    // il coefficiente letto dalla foto ha la precedenza su quello eventualmente già salvato per il bimestre
+    if(p.costoKwh){const e=document.getElementById(isCasa?'bc-coeff':'b-coeff');if(e)e.value=n(p.costoKwh).toFixed(isCasa?4:5)}
     if(res)res.innerHTML=`<div style="margin-top:10px;padding:10px;background:rgba(34,197,94,.08);border:1px solid var(--g);border-radius:6px;font-size:12px;color:var(--g)">
       ✓ Dati estratti. Controlla e premi Salva.<br/>
       ${p.fornitore?'Fornitore: '+es(p.fornitore)+'<br/>':''}
@@ -1630,6 +1667,7 @@ async function expData(){
     rt_kwh:costoKwh,rt_kwh_casa:LS.get('rt_kwh_casa',''),
     rt_bim_active:LS.get('rt_bim_active',''),
     rt_coeff_bim:LS.get('rt_coeff_bim',{}),rt_boll_bim:LS.get('rt_boll_bim',{}),rt_kwh_from:LS.get('rt_kwh_from',''),
+    rt_coeff_casa_bim:LS.get('rt_coeff_casa_bim',{}),rt_boll_casa_bim:LS.get('rt_boll_casa_bim',{}),rt_kwh_casa_from:LS.get('rt_kwh_casa_from',''),
     rt_luo_casa:luoCasa,rt_luo_lav:luoLav,
     rt_cycle:cycle
   };
@@ -1684,6 +1722,7 @@ function impData(file){
       if(data.rt_coeff_bim!==undefined)LS.set('rt_coeff_bim',data.rt_coeff_bim);
       if(data.rt_boll_bim!==undefined)LS.set('rt_boll_bim',data.rt_boll_bim);
       if(data.rt_kwh_from!==undefined)LS.set('rt_kwh_from',data.rt_kwh_from);
+      ['rt_coeff_casa_bim','rt_boll_casa_bim','rt_kwh_casa_from'].forEach(k=>{if(data[k]!==undefined)LS.set(k,data[k])});
       if(data.rt_boll_casa)LS.set('rt_boll_casa',data.rt_boll_casa);
       if(data.rt_boll_arch)LS.set('rt_boll_arch',data.rt_boll_arch);
       if(data.rt_cycle){cycle=data.rt_cycle;LS.set('rt_cycle',cycle)}
@@ -1745,6 +1784,17 @@ function attachEv(){
       if(tab==='rimborso') render();
     }
   }catch{}
+})();
+
+// Migrazione: vecchia bolletta casa (unico prezzo globale) → agganciata al bimestre del suo periodo
+(function(){
+  const m=LS.get('rt_coeff_casa_bim',{});
+  const b=LS.get('rt_boll_casa',null);
+  if(Object.keys(m).length||!b||!n(b.costoKwh))return;
+  const k=b.bimestre||bimFromPeriodo(b.periodo);
+  if(!k)return;
+  m[k]=n(b.costoKwh);LS.set('rt_coeff_casa_bim',m);
+  if(!LS.get('rt_kwh_casa_from',''))LS.set('rt_kwh_casa_from',k);
 })();
 
 sw('ciclo');
