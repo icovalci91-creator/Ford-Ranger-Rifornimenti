@@ -8,7 +8,7 @@
 <meta name="apple-mobile-web-app-title" content="RangerTrack"/>
 <meta name="theme-color" content="#0f0f0f"/>
 <meta http-equiv="Cache-Control" content="no-cache,no-store,must-revalidate"/>
-<title>RangerTrack v202607031600</title>
+<title>RangerTrack v2026.10.01-1</title>
 <link rel="apple-touch-icon" href="/apple-touch-icon.png"/>
 <link rel="preconnect" href="https://fonts.googleapis.com"/>
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@400;700;900&family=Barlow:wght@400;500&display=swap"/>
@@ -350,6 +350,7 @@ hr{border:none;border-top:1px solid var(--bd);margin:14px 0}
 </div>
 
 <script>
+const APP_VER='2026.10.01-1';
 // ── STORAGE ──────────────────────────────────────────────────────────────────
 const LS={
   get:(k,d)=>{try{const v=localStorage.getItem(k);return v!==null?JSON.parse(v):d}catch{return d}},
@@ -1863,7 +1864,8 @@ function fillBkSum(){
     <div>📦 Bimestri archiviati: <strong>${bimArch.length}</strong></div>
     <div>⚡ €/kWh az.: <strong>${costoKwh||'—'}</strong></div>
     <div>🏠 €/kWh casa: <strong>${LS.get('rt_kwh_casa','')||'—'}</strong></div>
-    <div style="margin-top:6px;color:${bkColor}">Ultimo backup: <strong>${bkTxt}</strong></div>`;
+    <div style="margin-top:6px;color:${bkColor}">Ultimo backup: <strong>${bkTxt}</strong></div>
+    <div style="margin-top:6px;color:var(--mu);font-size:10px">Versione app: ${APP_VER}</div>`;
 }
 async function expData(){
   const data={version:3,exportDate:new Date().toISOString(),

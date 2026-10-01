@@ -1,7 +1,7 @@
 // RangerTrack service worker — offline shell + apertura istantanea
 // Strategia: HTML network-first (aggiornamenti sempre visibili con rete),
 // asset cache-first con aggiornamento in background.
-const CACHE = 'rangertrack-v1';
+const CACHE = 'rangertrack-v2';
 const ASSETS = ['./', './index.html', './logo.png', './apple-touch-icon.png', './preload_bimestri.json'];
 
 self.addEventListener('install', e => {
