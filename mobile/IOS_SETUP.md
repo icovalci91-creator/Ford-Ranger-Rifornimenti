@@ -32,7 +32,23 @@ Niente App Store Connect, niente review, niente scadenza a 90 giorni.
 con bundle ID `app.rangertrack.mobile`, poi Product → Archive → Distribute → TestFlight,
 come per Ecotoce Tecnico. Le build TestFlight scadono dopo 90 giorni.
 
-## Aggiornamenti
+## Aggiornamenti (consigliato: script)
+
+Con Xcode chiuso, dalla cartella del repository:
+
+```bash
+bash mobile/aggiorna-ios.sh
+```
+
+Aggiorna webapp, Podfile e Info.plist da GitHub **senza toccare** il progetto Xcode locale
+(versione, build, firma, target), quindi niente conflitti con `git pull`. Poi in Xcode:
+Product › Clean Build Folder, aumenta **Build** (Archive/TestFlight rifiuta un numero già usato)
+e Archive/Run.
+
+> Se `git pull` dice "Your local changes would be overwritten", NON aggiorna nulla:
+> usa lo script.
+
+## Aggiornamenti (manuale)
 
 Dopo ogni modifica a `index.html` pushata da Windows:
 
