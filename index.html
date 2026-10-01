@@ -225,8 +225,8 @@ hr{border:none;border-top:1px solid var(--bd);margin:14px 0}
 <div class="mov" id="mo-kwh" style="display:none" onclick="if(event.target===this)closeMo('mo-kwh')">
   <div class="mo">
     <button class="mox" onclick="closeMo('mo-kwh')">✕</button>
-    <div class="motitle">⚡ Costo €/kWh Aziendale</div>
-    <p class="info">Coefficiente tecnico: (Totale - Sconti - Quote fisse) / kWh totali.</p>
+    <div class="motitle" id="kwh-title">⚡ Costo €/kWh Aziendale</div>
+    <p class="info">Coefficiente tecnico: (Totale - Sconti - Quote fisse) / kWh totali. Vale per il bimestre corrente; di solito si imposta da solo caricando la bolletta.</p>
     <div class="fl" style="margin-bottom:14px"><label>€/kWh</label><input type="text" id="kwh-in" placeholder="es. 0.12673" inputmode="decimal"/></div>
     <button class="btn bo" onclick="saveKwh()">Salva</button>
   </div>
@@ -402,20 +402,125 @@ function bimMonths(key){
   return[`${y}-${String(bi*2+1).padStart(2,'0')}`,`${y}-${String(bi*2+2).padStart(2,'0')}`];
 }
 function curBim(){return bimKey(td())}
-// coefficiente €/kWh specifico del bimestre (se impostato), altrimenti quello globale
+// bimestre precedente/successivo di una chiave "AAAA-Bn"
+function bimShift(key,d){
+  const m=key.match(/^(\d{4})-B(\d)$/);if(!m)return key;
+  let i=parseInt(m[1])*6+parseInt(m[2])-1+d;
+  return `${Math.floor(i/6)}-B${i%6+1}`;
+}
+// bimestre di competenza di una ricarica (dalla sua data)
+function bimOfRic(r){return bimKey(r&&r.data?r.data:'')}
+// bimestre del ciclo in corso (dalla data del cruscotto)
+function bimCiclo(){return bimKey(cycle&&cycle.cruscotto&&cycle.cruscotto.data?cycle.cruscotto.data:'')}
+// coefficiente €/kWh specifico del bimestre (se impostato), altrimenti l'ultimo noto (stima)
 function coeffForBim(key){const m=LS.get('rt_coeff_bim',{});return n(m[key])||n(costoKwh)}
-// opzioni per il selettore "bimestre di competenza": corrente + archiviati
+// da dove viene il coefficiente di un bimestre: bolletta del bimestre o stima dall'ultima nota
+function coeffInfo(key){
+  const m=LS.get('rt_coeff_bim',{});
+  if(n(m[key]))return{v:n(m[key]),src:'bolletta'};
+  if(n(costoKwh))return{v:n(costoKwh),src:'stima',from:LS.get('rt_kwh_from','')};
+  return{v:0,src:null};
+}
+// bolletta associata a un bimestre (nuovo formato per-bimestre, con compatibilità col vecchio bollRef)
+function bollForBim(key){
+  const b=LS.get('rt_boll_bim',{})[key];
+  if(b)return b;
+  if(bollRef&&bollRef.bimestre===key)return bollRef;
+  return null;
+}
+// riconosce il bimestre di competenza dal periodo della bolletta (date ISO o testo tipo "lug-ago 2026", "01/07/2026 - 31/08/2026")
+function bimFromPeriodo(periodo,dataInizio,dataFine){
+  const iso=s=>/^\d{4}-\d{2}-\d{2}/.test(s||'')?s.substring(0,10):null;
+  const di=iso(dataInizio),df=iso(dataFine);
+  if(di&&df){ // usa il punto medio: robusto anche a periodi a cavallo
+    const mid=new Date((new Date(di+'T12:00:00').getTime()+new Date(df+'T12:00:00').getTime())/2);
+    return bimKey(mid.toISOString().substring(0,10));
+  }
+  if(di||df)return bimKey(di||df);
+  const s=String(periodo||'').toLowerCase();
+  if(!s)return null;
+  const yM=s.match(/(20\d{2})/);
+  const d=s.match(/(\d{1,2})[\/.\-](\d{1,2})[\/.\-](20\d{2}|\d{2})/);
+  if(d){const y=d[3].length===2?'20'+d[3]:d[3];return bimKey(`${y}-${String(d[2]).padStart(2,'0')}-15`)}
+  const my=s.match(/\b(\d{1,2})[\/.\-](20\d{2})\b/);
+  if(my)return bimKey(`${my[2]}-${String(my[1]).padStart(2,'0')}-15`);
+  const mesi=['gen','feb','mar','apr','mag','giu','lug','ago','set','ott','nov','dic'];
+  const idx=mesi.findIndex(p=>new RegExp('\\b'+p).test(s));
+  if(idx>=0){
+    const y=yM?yM[1]:String(new Date().getFullYear());
+    return bimKey(`${y}-${String(idx+1).padStart(2,'0')}-15`);
+  }
+  return null;
+}
+// opzioni per il selettore "bimestre di competenza": ultimi bimestri del calendario + archiviati
 function bimOptions(selKey){
   const cur=curBim();
-  const opts=[{k:cur,l:bimLbl(cur)+' (corrente)'}];
-  bimArch.forEach(b=>{if(b.key&&b.key!==cur&&!opts.some(o=>o.k===b.key))opts.push({k:b.key,l:bimLbl(b.key)+' (archiviato)'})});
-  return opts.map(o=>`<option value="${o.k}"${o.k===selKey?' selected':''}>${es(o.l)}</option>`).join('');
+  const keys=new Set();
+  for(let i=0;i<7;i++)keys.add(bimShift(cur,-i));
+  bimArch.forEach(b=>{if(b.key)keys.add(b.key)});
+  if(selKey)keys.add(selKey);
+  return[...keys].sort().reverse().map(k=>{
+    const tag=k===cur?' (corrente)':bimArch.some(b=>b.key===k)?' (chiuso)':'';
+    return`<option value="${k}"${k===selKey?' selected':''}>${es(bimLbl(k)+tag)}</option>`;
+  }).join('');
+}
+// bimestre proposto di default per una bolletta: dal periodo se leggibile, altrimenti il precedente
+// (la bolletta di un bimestre arriva sempre dopo che si è chiuso)
+function defaultBimBolletta(){
+  const per=document.getElementById('b-per')?.value;
+  return bimFromPeriodo(per)||bimShift(curBim(),-1);
+}
+// aggiorna il selettore e il suggerimento quando cambia il periodo
+function onPeriodoChange(){
+  const sel=document.getElementById('b-bim');if(!sel)return;
+  const k=bimFromPeriodo(document.getElementById('b-per')?.value);
+  const hint=document.getElementById('b-bim-hint');
+  if(k){sel.innerHTML=bimOptions(k);sel.value=k;onBimSelChange()}
+  if(hint)hint.innerHTML=k?`✓ Riconosciuto dal periodo: <strong>${bimLbl(k)}</strong>`:'⚠️ Periodo non riconosciuto: verifica il bimestre';
 }
 // quando cambi bimestre nel selettore, mostra il suo coefficiente salvato (se c'è)
 function onBimSelChange(){
   const k=document.getElementById('b-bim')?.value;const e=document.getElementById('b-coeff');
   const m=LS.get('rt_coeff_bim',{});
   if(e&&k&&m[k]!==undefined)e.value=n(m[k]).toFixed(5);
+}
+// Chiusura automatica: ogni ricarica di un bimestre già passato finisce nel suo bimestre archiviato
+// (creato o aggiornato), con il coefficiente della sua bolletta o la stima dell'ultimo noto.
+function autoChiudiBimestri(){
+  const cur=curBim();
+  const vecchie=ricAz.filter(r=>bimOfRic(r)<cur);
+  if(!vecchie.length)return;
+  const perBim={};
+  vecchie.forEach(r=>{const k=bimOfRic(r);(perBim[k]=perBim[k]||[]).push(r)});
+  const msg=[];
+  Object.keys(perBim).sort().forEach(k=>{
+    const nuove=perBim[k];
+    let idx=bimArch.findIndex(b=>b.key===k);
+    if(idx<0){
+      const ci=coeffInfo(k);
+      let boll=bollForBim(k);
+      if(!boll&&bollRef&&!bollRef.bimestre){boll=bollRef;bollRef=null;LS.set('rt_boll',null)} // bolletta vecchio formato
+      bimArch.push({key:k,label:bimLbl(k),ricariche:[],bolletta:boll?{...boll}:null,
+        costoKwh:String(ci.v||''),stima:ci.src!=='bolletta',archiviato:td(),pagato:false});
+      idx=bimArch.length-1;
+    }
+    const b=bimArch[idx];
+    const esistenti=b.ricariche||[];
+    nuove.forEach(r=>{if(!esistenti.some(e=>e.data===r.data&&String(e.kwh).trim()===String(r.kwh).trim()))esistenti.push(r)});
+    b.ricariche=esistenti;
+    ricalcolaBim(b);
+    msg.push(bimLbl(k)+(b.pagato?' (già pagato: verifica!)':''));
+  });
+  ricAz=ricAz.filter(r=>bimOfRic(r)>=cur);
+  bimArch.sort((a,b)=>a.key<b.key?1:-1);
+  LS.set('rt_bimarch',bimArch);LS.set('rt_ricaz',ricAz);LS.set('rt_bim_active',cur);
+  setTimeout(()=>showToast('📦 Bimestre chiuso automaticamente: '+msg.join(', '),true),300);
+}
+// ricalcola kWh e importo di un bimestre archiviato dalle sue ricariche
+function ricalcolaBim(b){
+  const cK=n(b.costoKwh);
+  b.totKwh=r2((b.ricariche||[]).reduce((s,r)=>s+n(r.kwh),0));
+  b.totImp=r2(b.totKwh*cK);
 }
 
 // ── MODALS ───────────────────────────────────────────────────────────────────
@@ -427,7 +532,11 @@ function openMo(id){
     if(dr)dr.innerHTML=geminiKey?`<button class="btn bgh" style="margin-top:8px" onclick="removeGeminiKey()">🗑️ Rimuovi chiave</button>`:'';
   }
   if(id==='mo-ric'){const e=document.getElementById('ric-data');if(e&&!e.value)e.value=td()}
-  if(id==='mo-kwh'){const e=document.getElementById('kwh-in');if(e)e.value=costoKwh}
+  if(id==='mo-kwh'){
+    const k=curBim(),v=coeffInfo(k).v;
+    const e=document.getElementById('kwh-in');if(e)e.value=v?v.toFixed(5):'';
+    const t=document.getElementById('kwh-title');if(t)t.textContent='⚡ €/kWh aziendale · '+bimLbl(k);
+  }
   if(id==='mo-luoghi'){const c=document.getElementById('luo-casa');if(c)c.value=luoCasa;const v=document.getElementById('luo-lav');if(v)v.value=luoLav}
   if(id==='mo-nrif'){
     const kc=document.getElementById('nr-kwcc');if(kc&&!kc.value)kc.value=LS.get('rt_kwh_casa','')?n(LS.get('rt_kwh_casa','')).toFixed(4):'';
@@ -443,8 +552,13 @@ function askConfirm(msg,fn){
   document.getElementById('mo-confirm').style.display='flex';
 }
 function saveKwh(){
-  costoKwh=document.getElementById('kwh-in').value.trim();
-  LS.set('rt_kwh',costoKwh);closeMo('mo-kwh');render();
+  const v=n(document.getElementById('kwh-in').value);
+  const k=curBim();
+  const map=LS.get('rt_coeff_bim',{});
+  if(v){map[k]=v}else{delete map[k]}
+  LS.set('rt_coeff_bim',map);
+  if(v){costoKwh=String(v);LS.set('rt_kwh',costoKwh);LS.set('rt_kwh_from',k)}
+  closeMo('mo-kwh');render();
 }
 function saveLuoghi(){
   luoCasa=document.getElementById('luo-casa').value.trim();
@@ -486,6 +600,7 @@ function sw(t){
 function render(){
   const el=document.getElementById('main');
   if(!el)return;
+  autoChiudiBimestri();
   if(tab==='ciclo')el.innerHTML=rCiclo();
   else if(tab==='rimborso')el.innerHTML=rRimborso();
   else if(tab==='storico')el.innerHTML=rStorico();
@@ -536,11 +651,11 @@ function rStepSum(k){
     <div class="exr"><span class="exk">Totale</span><span class="exv">€ ${tot.toFixed(2)}</span></div>
     ${d.staz?`<div class="exr"><span class="exk">Stazione</span><span style="font-size:12px">${es(d.staz)}</span></div>`:''}
   </div>`;}
-  if(k==='ricCasa'){const cK=n(costoKwh);return`<div class="ex">
+  if(k==='ricCasa'){const cK=n(LS.get('rt_kwh_casa','')||costoKwh);return`<div class="ex">
     <div class="exr"><span class="exk">kWh Casa</span><span class="exv b">${n(d.kwh).toFixed(2)} kWh</span></div>
     ${cK>0?`<div class="exr"><span class="exk">Costo</span><span class="exv">€ ${r2(n(d.kwh)*cK).toFixed(2)}</span></div>`:''}
   </div>`;}
-  if(k==='ricLav'){const cK=n(costoKwh);return`<div class="ex">
+  if(k==='ricLav'){const cK=coeffForBim(bimCiclo());return`<div class="ex">
     <div class="exr"><span class="exk">kWh Lavoro</span><span class="exv g">${n(d.kwh).toFixed(2)} kWh</span></div>
     ${cK>0?`<div class="exr"><span class="exk">Rimborso</span><span class="exv g">€ ${r2(n(d.kwh)*cK).toFixed(2)}</span></div>`:''}
   </div>`;}
@@ -594,7 +709,7 @@ function rFinalSum(){
   const kmPerc=n(c.cruscotto?.km),kmEl=n(c.cruscotto?.kmel);
   const kmTerm=Math.max(0,kmPerc-kmEl);
   const kwhCasa=n(c.ricCasa?.kwh),kwhLav=n(c.ricLav?.kwh);
-  const cKaz=n(costoKwh);                                  // €/kWh aziendale (rimborso lavoro)
+  const cKaz=coeffForBim(bimCiclo());                      // €/kWh aziendale del bimestre del ciclo
   const cKcasa=n(LS.get('rt_kwh_casa','')||costoKwh);      // €/kWh casa
   const costoElCasa=kwhCasa*cKcasa;
   const rimborso=kwhLav*cKaz;
@@ -659,7 +774,7 @@ function saveFinal(){
   const c=cycle;
   const litri=n(c.scontrino?.litri),prezzo=n(c.scontrino?.prezzo);
   const kwhCasa=n(c.ricCasa?.kwh),kwhLav=n(c.ricLav?.kwh);
-  const cK=n(costoKwh);
+  const cK=coeffForBim(bimCiclo());
   const costoEC=r2(kwhCasa*n(LS.get('rt_kwh_casa','')||costoKwh));
   hist.unshift({
     id:Date.now(),data:c.cruscotto?.data||td(),
@@ -668,7 +783,7 @@ function saveFinal(){
     costoBenz:r2(litri*prezzo),
     km:c.cruscotto?.km,kmel:n(c.cruscotto?.kmel),
     kwhCasa,kwhLav,
-    costoKwhAz:costoKwh,costoKwhCasa:LS.get('rt_kwh_casa','')||costoKwh,
+    costoKwhAz:String(cK),costoKwhCasa:LS.get('rt_kwh_casa','')||costoKwh,
     costoEC,rimborso:r2(kwhLav*cK)
   });
   LS.set('rt_hist',hist);
@@ -682,62 +797,60 @@ function saveFinal(){
 // ══════════════════════════════════════════════════════════════════════════════
 function rRimborso(){
   const curK=curBim();
-  const cK=coeffForBim(curK);
-  const curMs=bimMonths(curK);
-  const ricCur=ricAz.filter(r=>curMs.includes((r.data||'').substring(0,7)));
+  const ci=coeffInfo(curK);
+  const cK=ci.v;
+  const ricCur=ricAz.filter(r=>bimOfRic(r)===curK);
   const totKwh=ricCur.reduce((s,r)=>s+n(r.kwh),0);
   const totImp=totKwh*cK;
   const rounded=Math.ceil(totImp);
-
-  // Check bimestre change
-  const activeK=LS.get('rt_bim_active',curK);
   let h='';
-  if(activeK!==curK&&ricAz.length>0){
-    h+=`<div style="background:rgba(249,115,22,.1);border:1px solid var(--o);border-radius:8px;padding:14px;margin-bottom:14px">
-      <div class="ctitle" style="color:var(--o)">🔔 Nuovo bimestre</div>
-      <div class="info">Sei nel bimestre <strong>${bimLbl(curK)}</strong>. Vuoi archiviare <strong>${bimLbl(activeK)}</strong>?</div>
-      <div class="brow">
-        <button class="btn bo bsm" onclick="archiviBim('${activeK}')">📦 Archivia e ricomincia</button>
-        <button class="btn bgh bsm" onclick="LS.set('rt_bim_active','${curK}');render()">Ignora</button>
-      </div>
-    </div>`;
-  }
 
-  // Header bimestre corrente
+  // Bimestri chiusi ancora senza la loro bolletta / da pagare
+  const inAttesa=bimArch.filter(b=>b.stima&&!b.pagato);
+  const daPagare=bimArch.filter(b=>!b.pagato);
+
+  // Header bimestre corrente (aperto automaticamente dalla data di oggi)
   h+=`<div style="background:var(--bg2);border:1px solid var(--g);border-radius:8px;padding:12px 14px;margin-bottom:10px;display:flex;align-items:center;justify-content:space-between">
-    <div><div style="font-size:9px;letter-spacing:3px;text-transform:uppercase;color:var(--g)">Bimestre corrente</div>
-    <div style="font-family:'Barlow Condensed',sans-serif;font-size:20px;font-weight:900">${bimLbl(curK)}</div></div>
-    ${bimArch.length>0?`<button class="btn bgh bsm" onclick="toggleArchSec()">📦 Archivio (${bimArch.length})</button>`:''}
+    <div><div style="font-size:9px;letter-spacing:3px;text-transform:uppercase;color:var(--g)">Bimestre di competenza</div>
+    <div style="font-family:'Barlow Condensed',sans-serif;font-size:20px;font-weight:900">${bimLbl(curK)}</div>
+    <div style="font-size:10px;color:var(--mu)">Aperto in automatico · si chiude da solo a fine bimestre</div></div>
+    ${bimArch.length>0?`<button class="btn bgh bsm" onclick="toggleArchSec()">📦 Archivio (${bimArch.length})${daPagare.length?`<br/><span style="color:var(--o)">${daPagare.length} da pagare</span>`:''}</button>`:''}
   </div>`;
+  if(inAttesa.length){
+    h+=`<div style="background:rgba(249,115,22,.08);border:1px solid var(--o);border-radius:8px;padding:10px 14px;margin-bottom:10px;font-size:12px;cursor:pointer" onclick="sw('bolletta')">
+      ⏳ In attesa di bolletta: <strong>${inAttesa.map(b=>es(b.label)).join(', ')}</strong><br/>
+      <span style="color:var(--mu)">Importo calcolato con il coefficiente stimato. Caricando la bolletta si aggiorna da solo →</span></div>`;
+  }
 
   // 4 stat boxes
   h+=`<div class="sg4">
     <div class="sc"><div class="slbl">Ricariche</div><div class="sval">${ricCur.length}</div></div>
     <div class="sc"><div class="slbl">Totale kWh</div><div class="sval">${totKwh.toFixed(1)}</div></div>
     <div class="sc"><div class="slbl">Coefficiente</div>
-      <div style="font-family:'Barlow Condensed',sans-serif;font-size:${cK?'24px':'28px'};font-weight:900;color:${cK?'var(--g)':'var(--mu)'};line-height:1;margin-top:4px">${cK?'€ '+cK.toFixed(5):'—'}</div>
-      <div class="ssub"><span style="color:var(--g);cursor:pointer;text-decoration:underline" onclick="openMo('mo-kwh')">modifica</span></div>
+      <div style="font-family:'Barlow Condensed',sans-serif;font-size:${cK?'24px':'28px'};font-weight:900;color:${ci.src==='bolletta'?'var(--g)':cK?'var(--o)':'var(--mu)'};line-height:1;margin-top:4px">${cK?'€ '+cK.toFixed(5):'—'}</div>
+      <div class="ssub">${ci.src==='bolletta'?'📄 da bolletta':ci.src==='stima'?'≈ stima'+(ci.from?' ('+bimLbl(ci.from)+')':''):'nessuna bolletta'} · <span style="color:var(--g);cursor:pointer;text-decoration:underline" onclick="openMo('mo-kwh')">modifica</span></div>
     </div>
     <div class="sc" style="background:${cK&&totKwh>0?'rgba(34,197,94,.08)':'var(--bg2)'};border-color:${cK&&totKwh>0?'var(--g)':'var(--bd)'}">
       <div class="slbl">Da Rimborsare</div>
-      <div style="font-family:'Barlow Condensed',sans-serif;font-size:${totImp>=100?'30px':'38px'};font-weight:900;color:${cK?'var(--g)':'var(--mu)'};line-height:1;margin-top:4px">${cK?'€ '+totImp.toFixed(2):'—'}</div>
-      ${cK&&totKwh>0?`<div class="ssub" style="color:var(--g)">≈ € ${rounded},00 arrotondato</div>`:''}
+      <div style="font-family:'Barlow Condensed',sans-serif;font-size:${totImp>=100?'30px':'38px'};font-weight:900;color:${cK?'var(--g)':'var(--mu)'};line-height:1;margin-top:4px">${cK||totKwh===0?'€ '+totImp.toFixed(2):'—'}</div>
+      ${cK&&totKwh>0?`<div class="ssub" style="color:var(--g)">≈ € ${rounded},00 arrotondato${ci.src==='stima'?' · provvisorio':''}</div>`:''}
     </div>
   </div>`;
 
-  // Bolletta pill
-  if(bollRef){
+  // Bolletta del bimestre
+  const bCur=bollForBim(curK);
+  if(bCur){
     h+=`<div style="background:var(--bg2);border:1px solid var(--bd);border-radius:8px;padding:12px 14px;margin-bottom:12px;display:flex;align-items:center;gap:10px">
       <span style="font-size:20px">🧾</span>
-      <div style="flex:1;min-width:0"><div style="font-size:10px;letter-spacing:2px;text-transform:uppercase;color:var(--mu)">Bolletta</div>
-      <div style="font-size:13px;font-weight:500">N. ${es(bollRef.numero||'—')} · ${es(bollRef.periodo||'—')}</div></div>
-      <div style="text-align:right;flex-shrink:0"><div style="font-family:'Barlow Condensed',sans-serif;font-size:16px;font-weight:700;color:var(--g)">€ ${n(bollRef.coefficiente).toFixed(5)}</div>
+      <div style="flex:1;min-width:0"><div style="font-size:10px;letter-spacing:2px;text-transform:uppercase;color:var(--mu)">Bolletta ${es(bimLbl(curK))}</div>
+      <div style="font-size:13px;font-weight:500">N. ${es(bCur.numero||'—')} · ${es(bCur.periodo||'—')}</div></div>
+      <div style="text-align:right;flex-shrink:0"><div style="font-family:'Barlow Condensed',sans-serif;font-size:16px;font-weight:700;color:var(--g)">€ ${n(bCur.coefficiente).toFixed(5)}</div>
       <div style="font-size:9px;color:var(--mu)">/kWh</div></div>
     </div>`;
   } else {
     h+=`<div style="background:rgba(249,115,22,.06);border:1px solid var(--bd);border-radius:8px;padding:12px 14px;margin-bottom:12px;cursor:pointer" onclick="sw('bolletta')">
-      <div style="font-size:10px;text-transform:uppercase;letter-spacing:2px;color:var(--mu)">Bolletta non caricata</div>
-      <div style="font-size:12px;color:var(--o);margin-top:2px">Tocca per caricare →</div>
+      <div style="font-size:10px;text-transform:uppercase;letter-spacing:2px;color:var(--mu)">Bolletta di ${es(bimLbl(curK))} non ancora disponibile</div>
+      <div style="font-size:12px;color:var(--o);margin-top:2px">${cK?'Uso il coefficiente stimato finché non la carichi':'Carica una bolletta per calcolare il rimborso'} →</div>
     </div>`;
   }
 
@@ -788,7 +901,8 @@ function rRimborso(){
   bimArch.forEach((b,i)=>{
     const pagato=!!b.pagato;
     const bc=pagato?'var(--g)':'rgba(249,115,22,.5)';
-    const badge=pagato?`<span class="badge-pagato">✓ PAGATO ${fd(b.dataPag)}</span>`:`<span class="badge-attesa">⏳ DA PAGARE</span>`;
+    const badge=(pagato?`<span class="badge-pagato">✓ PAGATO ${fd(b.dataPag)}</span>`:`<span class="badge-attesa">⏳ DA PAGARE</span>`)
+      +(b.stima?` <span class="badge-attesa" style="background:rgba(85,85,85,.25);color:var(--tx)">≈ STIMA · attesa bolletta</span>`:'');
     h+=`<div class="bcard" style="border:1px solid ${bc}">
       <div class="bcard-hdr" onclick="toggleBimD(${i})">
         <div><div style="font-family:'Barlow Condensed',sans-serif;font-size:18px;font-weight:900">${es(b.label)}</div>
@@ -804,7 +918,7 @@ function rRimborso(){
           <div>N. ${es(b.bolletta.numero||'—')} · ${es(b.bolletta.periodo||'—')}</div>
           <div style="color:var(--g)">Coeff. € ${n(b.bolletta.coefficiente).toFixed(5)}/kWh</div>
         </div>`:''}
-        ${rBimDettaglio(b)}
+        ${rBimDettaglio(b,i)}
         <div style="background:${pagato?'rgba(34,197,94,.08)':'rgba(249,115,22,.08)'};border:1px solid ${pagato?'var(--g)':'var(--o)'};border-radius:6px;padding:12px;margin-top:8px">
           <div style="font-size:9px;letter-spacing:2px;text-transform:uppercase;color:var(--mu);margin-bottom:8px">Riepilogo importi</div>
           <div style="display:flex;justify-content:space-between;padding:5px 0;border-bottom:1px solid var(--bd);font-size:12px"><span style="color:var(--mu)">Importo tecnico esatto</span><span style="font-family:'Barlow Condensed',sans-serif;font-size:17px;font-weight:700">€ ${n(b.totImp).toFixed(2)}</span></div>
@@ -823,7 +937,7 @@ function rRimborso(){
   return h;
 }
 
-function rBimDettaglio(b){
+function rBimDettaglio(b,bi){
   const cK=n(b.costoKwh);
   const byM={};
   (b.ricariche||[]).forEach(r=>{const k=(r.data||'').substring(0,7);if(!byM[k])byM[k]=[];byM[k].push(r)});
@@ -838,6 +952,7 @@ function rBimDettaglio(b){
         <span style="color:var(--mu)">${fd(r.data)}</span>
         <span style="color:var(--g);font-weight:600">${n(r.kwh).toFixed(2)} kWh</span>
         <span>${cK>0?'€ '+r2(n(r.kwh)*cK).toFixed(2):'—'}</span>
+        ${bi!==undefined&&r.id!==undefined?`<button class="delbtn" onclick="delRicArch(${bi},${r.id})">✕</button>`:''}
       </div>`).join('')}
       <div style="display:flex;justify-content:space-between;font-size:12px;padding:5px 0;font-weight:700">
         <span>Tot. ${mLbl.split(' ')[0]}</span><span style="color:var(--g)">${mKwh.toFixed(2)} kWh</span><span>${cK>0?'€ '+r2(mKwh*cK).toFixed(2):'—'}</span>
@@ -855,18 +970,16 @@ function toggleArchSec(){
   const el=document.getElementById('arch-sec');
   if(el)el.style.display=el.style.display==='none'?'block':'none';
 }
-function archiviBim(oldK){
-  const cK=coeffForBim(oldK);
-  const totKwh=ricAz.reduce((s,r)=>s+n(r.kwh),0);
-  bimArch.unshift({
-    key:oldK,label:bimLbl(oldK),
-    ricariche:[...ricAz],bolletta:bollRef?{...bollRef}:null,
-    costoKwh:String(cK),totKwh,totImp:r2(totKwh*cK),
-    archiviato:td(),pagato:false
+// elimina una singola ricarica da un bimestre chiuso e ricalcola il totale
+function delRicArch(bi,id){
+  const b=bimArch[bi];if(!b)return;
+  askConfirm('Eliminare questa ricarica da '+b.label+'?'+(b.pagato?' Il bimestre risulta già pagato.':''),()=>{
+    b.ricariche=(b.ricariche||[]).filter(r=>r.id!==id);
+    ricalcolaBim(b);
+    LS.set('rt_bimarch',bimArch);render();
+    const sec=document.getElementById('arch-sec');if(sec)sec.style.display='block';
+    const d=document.getElementById('bd-'+bi);if(d)d.classList.add('open');
   });
-  ricAz=[];bollRef=null;
-  LS.set('rt_bimarch',bimArch);LS.set('rt_ricaz',ricAz);LS.set('rt_boll',null);
-  LS.set('rt_bim_active',curBim());render();
 }
 
 // ── RICARICHE AZIENDA ─────────────────────────────────────────────────────────
@@ -1075,7 +1188,6 @@ function saveNRif(){
 // BOLLETTA TAB
 // ══════════════════════════════════════════════════════════════════════════════
 function rBolletta(){
-  const cKAz=n(costoKwh);
   const cKCasa=n(LS.get('rt_kwh_casa',''));
   const bCasa=LS.get('rt_boll_casa',null);
   const arch=LS.get('rt_boll_arch',[]);
@@ -1090,23 +1202,20 @@ function rBolletta(){
     <div id="res-baz"></div>
     <hr/>
     <div style="font-size:11px;font-weight:700;letter-spacing:2px;text-transform:uppercase;color:var(--mu);margin-bottom:10px">Dati per PDF</div>
-    <div class="fg"><div class="fl"><label>N. Bolletta</label><input type="text" id="b-num" placeholder="844/PR" value="${es(bollRef?.numero||'')}"/></div>
-    <div class="fl"><label>Data emissione</label><input type="date" id="b-data" value="${bollRef?.data||''}"/></div></div>
-    <div class="fg fg3"><div class="fl"><label>kWh Totali</label><input type="text" id="b-kwh" placeholder="1672" inputmode="decimal" value="${es(bollRef?.consumoTot||'')}"/></div>
-    <div class="fl"><label>Totale €</label><input type="text" id="b-tot" placeholder="444.00" inputmode="decimal" value="${es(bollRef?.totaleFattura||'')}"/></div>
-    <div class="fl"><label>Sconto soci €</label><input type="text" id="b-sc" placeholder="78.95" inputmode="decimal" value="${es(bollRef?.scontoSoci||'')}"/></div></div>
-    <div class="fg"><div class="fl"><label>Periodo</label><input type="text" id="b-per" placeholder="mar-apr 2026" value="${es(bollRef?.periodo||'')}"/></div>
-    <div class="fl"><label>Coefficiente €/kWh</label><input type="text" id="b-coeff" placeholder="0.12673" inputmode="decimal" value="${cKAz?cKAz.toFixed(5):''}"/></div></div>
-    <div class="fl" style="margin-bottom:12px"><label>Bimestre di competenza</label>
-      <select id="b-bim" onchange="onBimSelChange()" style="background:var(--bg3);border:1px solid var(--bd);border-radius:4px;padding:10px;color:var(--tx);font-size:15px;width:100%;color-scheme:dark">${bimOptions(curBim())}</select></div>
-    <div class="fl" style="margin-bottom:12px"><label>Nota (opz.)</label><input type="text" id="b-nota" placeholder="es. ricarica Via Sempione inclusa" value="${es(bollRef?.nota||'')}"/></div>
+    <div class="fg"><div class="fl"><label>N. Bolletta</label><input type="text" id="b-num" placeholder="844/PR"/></div>
+    <div class="fl"><label>Data emissione</label><input type="date" id="b-data"/></div></div>
+    <div class="fg fg3"><div class="fl"><label>kWh Totali</label><input type="text" id="b-kwh" placeholder="1672" inputmode="decimal"/></div>
+    <div class="fl"><label>Totale €</label><input type="text" id="b-tot" placeholder="444.00" inputmode="decimal"/></div>
+    <div class="fl"><label>Sconto soci €</label><input type="text" id="b-sc" placeholder="78.95" inputmode="decimal"/></div></div>
+    <div class="fg"><div class="fl"><label>Periodo</label><input type="text" id="b-per" placeholder="lug-ago 2026" oninput="onPeriodoChange()"/></div>
+    <div class="fl"><label>Coefficiente €/kWh</label><input type="text" id="b-coeff" placeholder="0.12673" inputmode="decimal"/></div></div>
+    <div class="fl" style="margin-bottom:4px"><label>Bimestre di competenza</label>
+      <select id="b-bim" onchange="onBimSelChange()" style="background:var(--bg3);border:1px solid var(--bd);border-radius:4px;padding:10px;color:var(--tx);font-size:15px;width:100%;color-scheme:dark">${bimOptions(bimShift(curBim(),-1))}</select></div>
+    <div id="b-bim-hint" style="font-size:11px;color:var(--mu);margin-bottom:12px">Si imposta da solo leggendo il periodo. Se non leggibile: bimestre precedente (la bolletta arriva sempre dopo).</div>
+    <div class="fl" style="margin-bottom:12px"><label>Nota (opz.)</label><input type="text" id="b-nota" placeholder="es. ricarica Via Sempione inclusa"/></div>
     <button class="btn bg" onclick="saveBollAz()">💾 Salva bolletta aziendale</button>
   </div>
-  ${cKAz?`<div style="background:rgba(34,197,94,.08);border:1px solid var(--g);border-radius:8px;padding:12px 16px;margin-bottom:14px;display:flex;justify-content:space-between;align-items:center">
-    <div><div style="font-size:9px;letter-spacing:2px;text-transform:uppercase;color:var(--g)">Coefficiente aziendale</div>
-    <div style="font-family:'Barlow Condensed',sans-serif;font-size:24px;font-weight:900;color:var(--g)">€ ${cKAz.toFixed(5)}<span style="font-size:13px;font-weight:400;color:var(--mu)">/kWh</span></div></div>
-    <div style="font-size:11px;color:var(--mu)">${bimLbl(curBim())}</div>
-  </div>`:''}
+  ${rStatoCoeff()}
 
   <div style="font-family:'Barlow Condensed',sans-serif;font-size:11px;font-weight:700;letter-spacing:3px;text-transform:uppercase;color:var(--b);margin:18px 0 10px">🏠 Bolletta Casa</div>
   <div class="card" style="border-color:rgba(59,130,246,.3)">
@@ -1142,9 +1251,11 @@ function saveBollAz(){
   const kwhtot=n(document.getElementById('b-kwh')?.value);
   const manuale=n(document.getElementById('b-coeff')?.value);
   let coeff=manuale;
-  if(!coeff&&totale>0&&kwhtot>0)coeff=r2((totale-sconto)/kwhtot*100000)/100000;
-  const bimSel=document.getElementById('b-bim')?.value||curBim();
-  const isCurrent=bimSel===curBim();
+  if(!coeff&&totale>0&&kwhtot>0)coeff=Math.round((totale-sconto)/kwhtot*100000)/100000;
+  if(!coeff){showToast('Inserisci il coefficiente oppure totale e kWh',false,true);return}
+  autoChiudiBimestri();
+  const cur=curBim();
+  const bimSel=document.getElementById('b-bim')?.value||defaultBimBolletta();
   const boll={
     numero:document.getElementById('b-num')?.value.trim(),
     data:document.getElementById('b-data')?.value,
@@ -1155,26 +1266,53 @@ function saveBollAz(){
     nota:document.getElementById('b-nota')?.value.trim(),
     coefficiente:coeff,bimestre:bimSel
   };
-  // salva il coefficiente per il bimestre di competenza
-  if(coeff){const map=LS.get('rt_coeff_bim',{});map[bimSel]=coeff;LS.set('rt_coeff_bim',map)}
+  // coefficiente e bolletta legati al bimestre di competenza
+  const map=LS.get('rt_coeff_bim',{});map[bimSel]=coeff;LS.set('rt_coeff_bim',map);
+  const bb=LS.get('rt_boll_bim',{});bb[bimSel]=boll;LS.set('rt_boll_bim',bb);
+  if(bimSel===cur){bollRef=boll;LS.set('rt_boll',bollRef)}
+  // "ultimo coefficiente noto" = quello della bolletta più recente: è la stima per i bimestri ancora senza bolletta
+  const latest=Object.keys(map).filter(k=>n(map[k])).sort().pop();
+  if(latest===bimSel){costoKwh=String(coeff);LS.set('rt_kwh',costoKwh);LS.set('rt_kwh_from',bimSel)}
   const arch=LS.get('rt_boll_arch',[]);
   arch.unshift({tipo:'aziendale',periodo:boll.periodo,bimestre:bimSel,coeff,data:td()});
   LS.set('rt_boll_arch',arch);
-  if(isCurrent){
-    bollRef=boll;LS.set('rt_boll',bollRef);
-    if(coeff){costoKwh=String(coeff);LS.set('rt_kwh',costoKwh)}
-    render();showToast('✓ Bolletta salvata! Coeff: € '+coeff.toFixed(5)+'/kWh',true);
+  // se il bimestre è già chiuso, aggiorna in automatico il dato da rimborsare
+  const b=bimArch.find(x=>x.key===bimSel);
+  let msg;
+  if(b){
+    const prima=n(b.totImp);
+    b.costoKwh=String(coeff);b.stima=false;b.bolletta=boll;
+    ricalcolaBim(b);
+    LS.set('rt_bimarch',bimArch);
+    msg=`✓ ${b.label}: rimborso € ${prima.toFixed(2)} → € ${n(b.totImp).toFixed(2)}`+(b.pagato?' · già pagato, verifica!':'');
+  }else if(bimSel===cur){
+    msg='✓ Bolletta '+bimLbl(cur)+' salvata · € '+coeff.toFixed(5)+'/kWh';
   }else{
-    // bimestre archiviato: aggiorna lo snapshot con il nuovo coefficiente
-    const idx=bimArch.findIndex(b=>b.key===bimSel);
-    if(idx>=0){
-      const b=bimArch[idx];
-      const totKwh=(b.ricariche||[]).reduce((s,r)=>s+n(r.kwh),0);
-      bimArch[idx]={...b,costoKwh:String(coeff),totKwh,totImp:r2(totKwh*coeff),bolletta:boll};
-      LS.set('rt_bimarch',bimArch);
-    }
-    render();showToast('✓ Coeff. € '+coeff.toFixed(5)+' applicato a '+bimLbl(bimSel),true);
+    msg='✓ Coefficiente salvato per '+bimLbl(bimSel)+' (nessuna ricarica in quel bimestre)';
   }
+  render();showToast(msg,true);
+}
+// riepilogo coefficienti per bimestre (tab Bolletta)
+function rStatoCoeff(){
+  const cur=curBim();
+  const keys=new Set([cur,bimShift(cur,-1)]);
+  bimArch.forEach(b=>b.key&&keys.add(b.key));
+  const rows=[...keys].sort().reverse().slice(0,6).map(k=>{
+    // bimestre chiuso: vale il suo coefficiente congelato; aperto: bolletta del bimestre o stima
+    const b=bimArch.find(x=>x.key===k);
+    const ci=coeffInfo(k);
+    const v=b?n(b.costoKwh):ci.v;
+    const conf=b?!b.stima&&v>0:ci.src==='bolletta';
+    const stato=conf?'<span style="color:var(--g)">📄 bolletta</span>':v?'<span style="color:var(--o)">≈ stima</span>':'<span style="color:var(--mu)">—</span>';
+    return`<div style="display:flex;justify-content:space-between;align-items:center;padding:6px 0;border-bottom:1px solid var(--bd);font-size:12px">
+      <span>${es(bimLbl(k))}${k===cur?' <span style="color:var(--mu)">(corrente)</span>':''}</span>
+      <span>${stato}</span>
+      <span style="font-family:'Barlow Condensed',sans-serif;font-size:15px;font-weight:700">${v?'€ '+v.toFixed(5):'—'}</span>
+    </div>`;
+  }).join('');
+  return`<div style="background:var(--bg2);border:1px solid var(--bd);border-radius:8px;padding:12px 14px;margin-bottom:14px">
+    <div style="font-size:9px;letter-spacing:2px;text-transform:uppercase;color:var(--g);margin-bottom:6px">Coefficiente aziendale per bimestre</div>
+    ${rows}</div>`;
 }
 function saveBollCasa(){
   const totale=n(document.getElementById('bc-tot')?.value);
@@ -1330,7 +1468,8 @@ async function extractAz(file){
     let nuove=0,saltate=0;
     sessioni.forEach(s=>{
       const data=s.data||td(),kwh=String(s.kwh).trim();
-      if(ricAz.some(r=>r.data===data&&String(r.kwh).trim()===kwh)){saltate++;return;}
+      const dup=r=>r.data===data&&String(r.kwh).trim()===kwh;
+      if(ricAz.some(dup)||bimArch.some(b=>(b.ricariche||[]).some(dup))){saltate++;return;}
       ricAz.push({id:Date.now()+Math.random(),data,kwh,note:''});nuove++;
     });
     ricAz.sort((a,b)=>b.data>a.data?1:-1);LS.set('rt_ricaz',ricAz);
@@ -1348,8 +1487,8 @@ async function extractBoll(file,tipo){
   try{
     const prompt=isCasa
       ?'Bolletta elettrica domestica. JSON puro:\n{"costoKwh":"","totaleKwh":"","totaleFattura":"","periodo":"","fornitore":""}\nSolo JSON.'
-      :'Bolletta elettrica aziendale. JSON puro:\n{"costoKwh":"","totaleKwh":"","totaleFattura":"","scontoSoci":"","periodo":"","fornitore":"","numeroBolletta":""}\ncostoKwh=(totaleFattura-scontoSoci)/totaleKwh. Solo JSON.';
-    const j=await callGemini(file,prompt,500);
+      :'Bolletta elettrica aziendale. JSON puro:\n{"costoKwh":"","totaleKwh":"","totaleFattura":"","scontoSoci":"","periodo":"","dataInizio":"","dataFine":"","dataEmissione":"","fornitore":"","numeroBolletta":""}\ncostoKwh=(totaleFattura-scontoSoci)/totaleKwh. dataInizio/dataFine = periodo di fatturazione dei consumi in formato YYYY-MM-DD (non la data di emissione). dataEmissione in formato YYYY-MM-DD. Solo JSON.';
+    const j=await callGemini(file,prompt,600);
     const p=JSON.parse(j);
     if(isCasa){
       if(p.costoKwh){const e=document.getElementById('bc-coeff');if(e)e.value=n(p.costoKwh).toFixed(4)}
@@ -1357,18 +1496,28 @@ async function extractBoll(file,tipo){
       if(p.totaleFattura){const e=document.getElementById('bc-tot');if(e)e.value=p.totaleFattura}
       if(p.periodo){const e=document.getElementById('bc-per');if(e)e.value=p.periodo}
     } else {
-      if(p.costoKwh){costoKwh=p.costoKwh;LS.set('rt_kwh',costoKwh)}
+      // niente scrittura del coefficiente qui: si applica solo al Salva, sul bimestre giusto
       if(p.numeroBolletta){const e=document.getElementById('b-num');if(e)e.value=p.numeroBolletta}
+      if(/^\d{4}-\d{2}-\d{2}$/.test(p.dataEmissione||'')){const e=document.getElementById('b-data');if(e)e.value=p.dataEmissione}
       if(p.totaleKwh){const e=document.getElementById('b-kwh');if(e)e.value=p.totaleKwh}
       if(p.totaleFattura){const e=document.getElementById('b-tot');if(e)e.value=p.totaleFattura}
       if(p.scontoSoci){const e=document.getElementById('b-sc');if(e)e.value=p.scontoSoci}
       if(p.periodo){const e=document.getElementById('b-per');if(e)e.value=p.periodo}
       if(p.costoKwh){const e=document.getElementById('b-coeff');if(e)e.value=n(p.costoKwh).toFixed(5)}
     }
+    // bimestre di competenza riconosciuto dal periodo (solo bolletta aziendale)
+    let bimRil=null;
+    if(!isCasa){
+      bimRil=bimFromPeriodo(p.periodo,p.dataInizio,p.dataFine);
+      const sel=document.getElementById('b-bim'),hint=document.getElementById('b-bim-hint');
+      if(sel&&bimRil){sel.innerHTML=bimOptions(bimRil);sel.value=bimRil}
+      if(hint)hint.innerHTML=bimRil?`✓ Riconosciuto dal periodo: <strong>${bimLbl(bimRil)}</strong>`:'⚠️ Periodo non riconosciuto: verifica il bimestre';
+    }
     if(res)res.innerHTML=`<div style="margin-top:10px;padding:10px;background:rgba(34,197,94,.08);border:1px solid var(--g);border-radius:6px;font-size:12px;color:var(--g)">
       ✓ Dati estratti. Controlla e premi Salva.<br/>
       ${p.fornitore?'Fornitore: '+es(p.fornitore)+'<br/>':''}
       Coeff: <strong>€ ${n(p.costoKwh).toFixed(isCasa?4:5)}/kWh</strong>
+      ${bimRil?`<br/>Bimestre di competenza: <strong>${bimLbl(bimRil)}</strong>`:''}
     </div>`;
   }catch(e){if(res)res.innerHTML=`<div style="color:var(--r);font-size:12px;margin-top:8px">Errore AI: ${es(e.message)}. Inserisci manualmente.</div>`}
   if(l)l.style.display='none';
@@ -1377,9 +1526,9 @@ async function extractBoll(file,tipo){
 // ── TOAST ────────────────────────────────────────────────────────────────────
 function showToast(msg,ok,err){
   const t=document.createElement('div');
-  t.style.cssText='position:fixed;bottom:calc(env(safe-area-inset-bottom,0px)+80px);left:50%;transform:translateX(-50%);background:#222;border:1px solid '+(err?'var(--r)':ok?'var(--g)':'var(--o)')+';border-radius:8px;padding:10px 18px;font-size:13px;color:'+(err?'var(--r)':ok?'var(--g)':'var(--o)')+';z-index:300;white-space:nowrap';
+  t.style.cssText='position:fixed;bottom:calc(env(safe-area-inset-bottom,0px)+80px);left:50%;transform:translateX(-50%);background:#222;border:1px solid '+(err?'var(--r)':ok?'var(--g)':'var(--o)')+';border-radius:8px;padding:10px 18px;font-size:13px;color:'+(err?'var(--r)':ok?'var(--g)':'var(--o)')+';z-index:300;max-width:calc(100% - 28px);width:max-content;text-align:center;line-height:1.4';
   t.textContent=msg;document.body.appendChild(t);
-  if(ok||err)setTimeout(()=>{if(document.body.contains(t))document.body.removeChild(t)},2000);
+  if(ok||err)setTimeout(()=>{if(document.body.contains(t))document.body.removeChild(t)},msg.length>45?3500:2000);
   return t;
 }
 function removeToast(t){if(t&&document.body.contains(t))document.body.removeChild(t)}
@@ -1393,9 +1542,9 @@ function doPrint(tipo,bimIdx){
     const b=bimArch[bimIdx];if(!b)return;
     ricariche=b.ricariche||[];bRef=b.bolletta;cKwh=n(b.costoKwh);periodo=b.label;
   } else {
-    const curMs=bimMonths(curBim());
-    ricariche=ricAz.filter(r=>curMs.includes((r.data||'').substring(0,7)));
-    bRef=bollRef;cKwh=coeffForBim(curBim());
+    const curK=curBim();
+    ricariche=ricAz.filter(r=>bimOfRic(r)===curK);
+    bRef=bollForBim(curK);cKwh=coeffForBim(curK);
     const months=Object.keys(ricariche.reduce((m,r)=>{const k=(r.data||'').substring(0,7);m[k]=1;return m},{})).sort();
     const mLbl=m=>{const[y,mo]=m.split('-');return new Date(parseInt(y),parseInt(mo)-1,1).toLocaleDateString('it-IT',{month:'long',year:'numeric'})};
     const f=months[0]||'',l=months[months.length-1]||'';
@@ -1480,7 +1629,7 @@ async function expData(){
     rt_boll_arch:LS.get('rt_boll_arch',[]),
     rt_kwh:costoKwh,rt_kwh_casa:LS.get('rt_kwh_casa',''),
     rt_bim_active:LS.get('rt_bim_active',''),
-    rt_coeff_bim:LS.get('rt_coeff_bim',{}),
+    rt_coeff_bim:LS.get('rt_coeff_bim',{}),rt_boll_bim:LS.get('rt_boll_bim',{}),rt_kwh_from:LS.get('rt_kwh_from',''),
     rt_luo_casa:luoCasa,rt_luo_lav:luoLav,
     rt_cycle:cycle
   };
@@ -1533,6 +1682,8 @@ function impData(file){
       if(data.rt_luo_casa!==undefined){luoCasa=data.rt_luo_casa;LS.set('rt_luo_casa',luoCasa)}
       if(data.rt_luo_lav!==undefined){luoLav=data.rt_luo_lav;LS.set('rt_luo_lav',luoLav)}
       if(data.rt_coeff_bim!==undefined)LS.set('rt_coeff_bim',data.rt_coeff_bim);
+      if(data.rt_boll_bim!==undefined)LS.set('rt_boll_bim',data.rt_boll_bim);
+      if(data.rt_kwh_from!==undefined)LS.set('rt_kwh_from',data.rt_kwh_from);
       if(data.rt_boll_casa)LS.set('rt_boll_casa',data.rt_boll_casa);
       if(data.rt_boll_arch)LS.set('rt_boll_arch',data.rt_boll_arch);
       if(data.rt_cycle){cycle=data.rt_cycle;LS.set('rt_cycle',cycle)}
