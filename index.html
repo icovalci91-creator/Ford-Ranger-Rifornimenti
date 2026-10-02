@@ -8,7 +8,7 @@
 <meta name="apple-mobile-web-app-title" content="RangerTrack"/>
 <meta name="theme-color" content="#0f0f0f"/>
 <meta http-equiv="Cache-Control" content="no-cache,no-store,must-revalidate"/>
-<title>RangerTrack v2026.10.02-1</title>
+<title>RangerTrack v2026.10.02-2</title>
 <link rel="apple-touch-icon" href="/apple-touch-icon.png"/>
 <link rel="preconnect" href="https://fonts.googleapis.com"/>
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@400;700;900&family=Barlow:wght@400;500&display=swap"/>
@@ -259,6 +259,11 @@ hr{border:none;border-top:1px solid var(--bd);margin:14px 0}
   <div class="mo mg">
     <button class="mox" onclick="closeMo('mo-ric')">✕</button>
     <div class="motitle" style="color:var(--g)">➕ Aggiungi Ricarica</div>
+    <input type="hidden" id="ric-tipo" value="lavoro"/>
+    <div class="brow" style="margin-bottom:12px">
+      <button class="btn bsm" id="ric-t-casa" style="flex:1" onclick="setRicTipo('casa')">🏠 Casa</button>
+      <button class="btn bsm" id="ric-t-lavoro" style="flex:1" onclick="setRicTipo('lavoro')">🏢 Lavoro</button>
+    </div>
     <div class="fg" style="margin-bottom:12px">
       <div class="fl"><label>Data</label><input type="date" id="ric-data"/></div>
       <div class="fl"><label>kWh</label><input type="text" class="ig" id="ric-kwh" placeholder="es. 10.1" inputmode="decimal"/></div>
@@ -347,7 +352,7 @@ hr{border:none;border-top:1px solid var(--bd);margin:14px 0}
   <div class="mo">
     <button class="mox" onclick="closeMo('mo-ricrev')">✕</button>
     <div class="motitle">⚡ Conferma ricariche</div>
-    <p class="info">Controlla ogni ricarica letta dalle foto: correggi i kWh se serve e scegli 🏠 Casa o 🏢 Lavoro. Poi salva.</p>
+    <p class="info">Controlla data, kWh e 🏠 casa / 🏢 lavoro di ogni ricarica letta. Togli la spunta a quelle da non salvare. Le ricariche al lavoro vanno nel rimborso; tutte servono a calcolare i cicli.</p>
     <div id="ricrev-body"></div>
     <button class="btn bo" style="margin-top:12px" onclick="saveRicRev()">Salva ricariche</button>
   </div>
@@ -377,7 +382,7 @@ hr{border:none;border-top:1px solid var(--bd);margin:14px 0}
 </div>
 
 <script>
-const APP_VER='2026.10.02-1';
+const APP_VER='2026.10.02-2';
 // ── STORAGE ──────────────────────────────────────────────────────────────────
 const LS={
   get:(k,d)=>{try{const v=localStorage.getItem(k);return v!==null?JSON.parse(v):d}catch{return d}},
@@ -391,7 +396,8 @@ let geminiKey=LS.get('rt_gemini_key','');
 let luoCasa=LS.get('rt_luo_casa','');
 let luoLav=LS.get('rt_luo_lav','');
 let hist=LS.get('rt_hist',[]);
-let ricAz=LS.get('rt_ricaz',[]);
+let ricAz=LS.get('rt_ricaz',[]);          // ricariche al lavoro del bimestre in corso (le chiuse sono in bimArch)
+let ricCasaL=LS.get('rt_riccasa',[]);     // ricariche a casa, con data (servono a calcolare i cicli)
 let bollRef=LS.get('rt_boll',null);
 let bimArch=LS.get('rt_bimarch',[]);
 let cycle=LS.get('rt_cycle',{cruscotto:null,scontrino:null,ricCasa:null,ricLav:null});
@@ -406,17 +412,18 @@ let sOpen={}, sDetail={};
   let cambiato=false;
   const pulito=(v,f)=>{const a=arr(v).map(f);if(!Array.isArray(v)||a.length!==v.length||JSON.stringify(a)!==JSON.stringify(v))cambiato=true;return a};
   ricAz=pulito(ricAz,fixRic);
+  ricCasaL=pulito(ricCasaL,fixRic);
   hist=pulito(hist,h=>{if(h.data)h.data=isoData(h.data);return h});
   bimArch=pulito(bimArch,b=>{b.ricariche=arr(b.ricariche).map(fixRic);if(!b.key&&b.label)b.key=b.label;return b});
   // ID ricariche univoci (le versioni vecchie usavano solo l'ora: due ricariche potevano avere lo stesso ID
   // ed essere eliminate insieme)
   const visti=new Set();
-  [...ricAz,...bimArch.flatMap(b=>b.ricariche)].forEach(r=>{
+  [...ricAz,...ricCasaL,...bimArch.flatMap(b=>b.ricariche)].forEach(r=>{
     if(r.id===undefined||visti.has(r.id)){r.id=Date.now()*1000+Math.floor(Math.random()*1e6);cambiato=true}
     visti.add(r.id);
   });
   if(!cycle||typeof cycle!=='object'){cycle={cruscotto:null,scontrino:null,ricCasa:null,ricLav:null};cambiato=true}
-  if(cambiato){LS.set('rt_ricaz',ricAz);LS.set('rt_hist',hist);LS.set('rt_bimarch',bimArch);LS.set('rt_cycle',cycle)}
+  if(cambiato){LS.set('rt_ricaz',ricAz);LS.set('rt_riccasa',ricCasaL);LS.set('rt_hist',hist);LS.set('rt_bimarch',bimArch);LS.set('rt_cycle',cycle)}
 })();
 
 // ── ERRORI VISIBILI: se qualcosa va storto lo mostro sullo schermo (utile nell'app iOS) ──
@@ -510,6 +517,37 @@ function bimShift(key,d){
 function bimOfRic(r){return bimKey(r&&r.data?r.data:'')}
 // bimestre del ciclo in corso (dalla data del cruscotto)
 function bimCiclo(){return bimKey(cycle&&cycle.cruscotto&&cycle.cruscotto.data?cycle.cruscotto.data:'')}
+// tutte le ricariche al lavoro (bimestre in corso + bimestri chiusi), con l'eventuale bimestre di appartenenza
+function tutteLavoro(){return[...ricAz.map(r=>({r,bim:null})),...bimArch.flatMap(b=>(b.ricariche||[]).map(r=>({r,bim:b.key})))]}
+// periodo del ciclo: dal rifornimento precedente (escluso) alla data di questo rifornimento (inclusa).
+// Una ricarica fatta il giorno del rifornimento conta nel ciclo che si chiude quel giorno.
+function periodoCiclo(){
+  const a=normData(cycle&&cycle.cruscotto&&cycle.cruscotto.data)||td();
+  if(cycle&&cycle.periodoDa)return{da:cycle.periodoDa,a,auto:false};
+  // ciclo già datato: rifornimento precedente = ultimo prima di questa data;
+  // ciclo nuovo senza data: l'ultimo rifornimento salvato (anche di oggi) chiude il periodo precedente
+  const haData=!!(cycle&&cycle.cruscotto&&normData(cycle.cruscotto.data));
+  const prec=hist.map(h=>normData(h.data)).filter(d=>d&&(haData?d<a:d<=a)).sort().pop();
+  if(prec)return{da:prec,a,auto:true};
+  const t=new Date(a+'T12:00:00');t.setDate(t.getDate()-30); // primo ciclo: 30 giorni, modificabile
+  return{da:isoLocale(t),a,auto:false,primo:true};
+}
+function ricDelCiclo(tipo){
+  const P=periodoCiclo(),dentro=r=>{const d=normData(r.data);return d&&d>P.da&&d<=P.a};
+  const lista=tipo==='casa'?ricCasaL.filter(dentro).map(r=>({r,bim:null})):tutteLavoro().filter(x=>dentro(x.r));
+  return lista.sort((x,y)=>normData(x.r.data)>normData(y.r.data)?1:-1);
+}
+function setPeriodoDa(v){const d=normData(v);if(!d)return;cycle.periodoDa=d;LS.set('rt_cycle',cycle);render()}
+// elimina una ricarica ovunque si trovi (casa, lavoro in corso, bimestre chiuso)
+function delRicOvunque(id){
+  if(ricCasaL.some(r=>r.id===id)){
+    const snap=snapDati(),r=ricCasaL.find(x=>x.id===id);
+    ricCasaL=ricCasaL.filter(x=>x.id!==id);LS.set('rt_riccasa',ricCasaL);
+    logEv('elimina',`Ricarica casa ${fd(r.data)} · ${n(r.kwh)} kWh eliminata`);render();offriAnnulla('Ricarica eliminata',snap);return;
+  }
+  if(ricAz.some(r=>r.id===id))return delRic(id);
+  const b=bimArch.find(x=>(x.ricariche||[]).some(r=>r.id===id));if(b)delRicArch(b.key,id);
+}
 // coefficiente €/kWh specifico del bimestre (se impostato), altrimenti l'ultimo noto (stima)
 function coeffForBim(key){const m=LS.get('rt_coeff_bim',{});return n(m[key])||n(costoKwh)}
 // da dove viene il coefficiente di un bimestre: bolletta del bimestre o stima dall'ultima nota
@@ -750,7 +788,8 @@ function rCiclo(){
   ];
   const cur=steps.findIndex(s=>!s.done);
   const all=cur===-1;
-  let h=`<div class="wiz"><div class="dots">`;
+  let h=rRicaricheCiclo();
+  h+=`<div class="wiz"><div class="dots">`;
   steps.forEach((s,i)=>h+=`<div class="dot${s.done?' dn':i===cur?' ac':''}"></div>`);
   h+=`</div><div class="wlbl">${all?'Pronto!':'Passo '+(cur+1)+' di 4'}</div>`;
   if(cycle.cruscotto||cycle.scontrino||cycle.ricCasa||cycle.ricLav)
@@ -768,6 +807,17 @@ function rCiclo(){
   return h;
 }
 
+// riquadro in cima al Ciclo: ricariche accumulate dall'ultimo rifornimento, caricabili in qualsiasi momento
+function rRicaricheCiclo(){
+  const P=periodoCiclo(),c=ricDelCiclo('casa'),l=ricDelCiclo('lavoro');
+  const kc=r2(c.reduce((t,x)=>t+n(x.r.kwh),0)),kl=r2(l.reduce((t,x)=>t+n(x.r.kwh),0));
+  return`<div style="background:var(--bg2);border:1px solid var(--bd);border-radius:8px;padding:10px 12px;margin-bottom:12px;font-size:12px">
+    <div style="display:flex;align-items:center;justify-content:space-between;gap:8px">
+      <div><div style="font-size:9px;letter-spacing:2px;text-transform:uppercase;color:var(--mu)">🔌 Ricariche dal ${fd(P.da)}${cycle.cruscotto?' al '+fd(P.a):''}</div>
+      <div style="margin-top:3px"><span style="color:var(--b)">🏠 ${kc.toFixed(1)} kWh (${c.length})</span> · <span style="color:var(--g)">🏢 ${kl.toFixed(1)} kWh (${l.length})</span></div></div>
+      <div style="display:flex;gap:6px"><button class="btn bgh bsm" onclick="openFotoRic('')">📸</button><button class="btn bgh bsm" onclick="openRicPer(null,'casa')">➕</button></div>
+    </div></div>`;
+}
 function rStepSum(k){
   const d=cycle[k];if(!d)return'';
   if(k==='cruscotto')return`<div class="ex">
@@ -783,10 +833,12 @@ function rStepSum(k){
   </div>`;}
   if(k==='ricCasa'){const cK=coeffCasaForBim(bimCiclo());return`<div class="ex">
     <div class="exr"><span class="exk">kWh Casa</span><span class="exv b">${n(d.kwh).toFixed(2)} kWh</span></div>
+    ${d.nRic!==undefined?`<div class="exr"><span class="exk">Ricariche</span><span style="font-size:12px">${d.nRic} · ${fd(d.da)} → ${fd(d.a)}${d.manuale?' · <span style="color:var(--o)">corretto a mano</span>':''}</span></div>`:''}
     ${cK>0?`<div class="exr"><span class="exk">Costo</span><span class="exv">€ ${r2(n(d.kwh)*cK).toFixed(2)}</span></div>`:''}
   </div>`;}
   if(k==='ricLav'){const cK=coeffForBim(bimCiclo());return`<div class="ex">
     <div class="exr"><span class="exk">kWh Lavoro</span><span class="exv g">${n(d.kwh).toFixed(2)} kWh</span></div>
+    ${d.nRic!==undefined?`<div class="exr"><span class="exk">Ricariche</span><span style="font-size:12px">${d.nRic} · ${fd(d.da)} → ${fd(d.a)}${d.manuale?' · <span style="color:var(--o)">corretto a mano</span>':''}</span></div>`:''}
     ${cK>0?`<div class="exr"><span class="exk">Rimborso</span><span class="exv g">€ ${r2(n(d.kwh)*cK).toFixed(2)}</span></div>`:''}
   </div>`;}
   return'';
@@ -820,15 +872,29 @@ function rStepForm(k){
     <div class="fl"><label>€/Litro</label><input type="text" id="f-prezzo" placeholder="1.899" inputmode="decimal"/></div></div>
     <div class="fl" style="margin-bottom:12px"><label>Stazione (opz.)</label><input type="text" id="f-staz" placeholder="ENI Autostrada"/></div>
     <button class="btn bo" onclick="saveScontrino()">Conferma</button>`;
-  if(k==='ricCasa')return`
-    ${upBlock('ca','🏠','Carica le foto del wallbox o app di ricarica<br/>Puoi aggiungere più foto<br/>AI legge i kWh totali',true)}
-    ${!costoKwh?'<div class="warn">⚠️ Imposta €/kWh in Bolletta per calcolare i costi</div>':''}
-    <div class="fl" style="margin-bottom:12px"><label>kWh Totali a Casa</label><input type="text" class="ig" id="f-kwc" placeholder="28.4" inputmode="decimal"/></div>
-    <button class="btn bo" onclick="saveRicCasa()">Conferma</button>`;
-  if(k==='ricLav')return`
-    ${upBlock('la','🏢','Carica le foto del wallbox aziendale<br/>Puoi aggiungere più foto<br/>AI legge i kWh totali',true)}
-    <div class="fl" style="margin-bottom:12px"><label>kWh Totali al Lavoro</label><input type="text" class="ig" id="f-kwl" placeholder="15.2" inputmode="decimal"/></div>
-    <button class="btn bg" onclick="saveRicLav()">Conferma</button>`;
+  if(k==='ricCasa'||k==='ricLav'){
+    const casa=k==='ricCasa',tipo=casa?'casa':'lavoro',P=periodoCiclo(),lista=ricDelCiclo(tipo);
+    const tot=r2(lista.reduce((t,x)=>t+n(x.r.kwh),0));
+    const cK=casa?coeffCasaForBim(bimCiclo()):coeffForBim(bimCiclo());
+    return`<div style="font-size:12px;color:var(--mu);margin-bottom:8px;line-height:1.6">
+        Calcolate in automatico dalle ricariche ${casa?'di casa':'al lavoro'} del periodo:<br/>
+        dal <input type="date" value="${P.da}" max="${P.a}" onchange="setPeriodoDa(this.value)" style="background:var(--bg3);border:1px solid var(--bd);border-radius:4px;padding:4px 6px;color:var(--tx);color-scheme:dark;font-size:13px"/>
+        <span>(escluso) al <strong style="color:var(--tx)">${fd(P.a)}</strong> (rifornimento)</span>
+        ${P.auto?'<br/><span style="font-size:10px">inizio = rifornimento precedente</span>':P.primo?'<br/><span style="font-size:10px;color:var(--o)">primo ciclo: imposta la data del rifornimento precedente</span>':''}</div>
+      ${lista.length?`<div style="background:var(--bg3);border-radius:6px;padding:4px 10px;margin-bottom:10px">${lista.map(x=>`<div style="display:flex;align-items:center;gap:8px;padding:5px 0;border-bottom:1px solid var(--bd);font-size:12px">
+          <span style="color:var(--mu);min-width:72px">${fd(x.r.data)}</span><span style="flex:1;font-weight:600;color:${casa?'var(--b)':'var(--g)'}">${n(x.r.kwh).toFixed(2)} kWh</span>
+          ${x.bim?`<span style="font-size:10px;color:var(--mu)">${es(bimLbl(x.bim))}</span>`:''}${cK?`<span style="font-size:11px">€ ${r2(n(x.r.kwh)*cK).toFixed(2)}</span>`:''}
+          <button class="delbtn" onclick="delRicOvunque(${x.r.id})">✕</button></div>`).join('')}
+          <div style="display:flex;justify-content:space-between;padding:6px 0;font-size:12px;font-weight:700"><span>${plur(lista.length,'ricarica','ricariche')}</span><span>${tot.toFixed(2)} kWh${cK?' · € '+r2(tot*cK).toFixed(2):''}</span></div></div>`
+        :`<div class="empty" style="padding:16px;margin-bottom:10px">Nessuna ricarica ${casa?'di casa':'al lavoro'} in questo periodo.<br/>Caricale da foto o aggiungile a mano.</div>`}
+      <div class="brow" style="margin-bottom:12px">
+        <button class="btn bgh bsm" onclick="openFotoRic('${tipo}')">📸 Carica ricariche</button>
+        <button class="btn bgh bsm" onclick="openRicPer(null,'${tipo}')">➕ Aggiungi a mano</button>
+      </div>
+      ${casa&&!coeffCasaForBim(bimCiclo())?'<div class="warn">⚠️ Imposta €/kWh in Bolletta per calcolare i costi</div>':''}
+      <div class="fl" style="margin-bottom:12px"><label>kWh totali ${casa?'a casa':'al lavoro'} (puoi correggere)</label><input type="text" class="ig" id="${casa?'f-kwc':'f-kwl'}" value="${tot||''}" placeholder="0" inputmode="decimal"/></div>
+      <button class="btn ${casa?'bo':'bg'}" onclick="${casa?'saveRicCasa()':'saveRicLav()'}">Conferma</button>`;
+  }
   return'';
 }
 
@@ -878,16 +944,17 @@ function saveScontrino(){
   cycle.scontrino={litri,prezzo,staz:document.getElementById('f-staz')?.value.trim()};
   LS.set('rt_cycle',cycle);render();
 }
-function saveRicCasa(){
-  const kwh=document.getElementById('f-kwc')?.value.trim();
-  if(!kwh){showToast('Inserisci i kWh',false,true);return}
-  cycle.ricCasa={kwh};LS.set('rt_cycle',cycle);render();
+// conferma degli step ricariche: 0 è ammesso (ciclo senza ricariche); si ricorda periodo e se corretto a mano
+function salvaStepRic(k,campo){
+  const v=document.getElementById(campo)?.value.trim();
+  if(v===''){showToast('Inserisci i kWh (anche 0)',false,true);return}
+  const P=periodoCiclo(),lista=ricDelCiclo(k==='ricCasa'?'casa':'lavoro');
+  const calc=r2(lista.reduce((t,x)=>t+n(x.r.kwh),0));
+  cycle[k]={kwh:String(r2(n(v))),calcolato:calc,nRic:lista.length,da:P.da,a:P.a,manuale:r2(n(v))!==calc};
+  LS.set('rt_cycle',cycle);render();
 }
-function saveRicLav(){
-  const kwh=document.getElementById('f-kwl')?.value.trim();
-  if(!kwh){showToast('Inserisci i kWh',false,true);return}
-  cycle.ricLav={kwh};LS.set('rt_cycle',cycle);render();
-}
+function saveRicCasa(){salvaStepRic('ricCasa','f-kwc')}
+function saveRicLav(){salvaStepRic('ricLav','f-kwl')}
 function resetCycle(){
   askConfirm('Azzerare il ciclo corrente?',()=>{
     const snap=snapDati();
@@ -919,7 +986,8 @@ function saveFinal(){
     km:c.cruscotto?.km,kmel:n(c.cruscotto?.kmel),
     kwhCasa,kwhLav,
     costoKwhAz:String(cK),costoKwhCasa:String(ciCasa.v),casaStima:ciCasa.src!=='bolletta',
-    costoEC,rimborso:r2(kwhLav*cK)
+    costoEC,rimborso:r2(kwhLav*cK),
+    periodo:(c.ricCasa&&c.ricCasa.da)||(c.ricLav&&c.ricLav.da)?{da:(c.ricCasa||c.ricLav).da,a:(c.ricCasa||c.ricLav).a}:undefined
   });
   LS.set('rt_hist',hist);
   cycle={cruscotto:null,scontrino:null,ricCasa:null,ricLav:null};
@@ -1144,8 +1212,14 @@ function rListaBimestri(curK){
 // data e ora brevi da timestamp ISO
 function fdt(iso){try{const d=new Date(iso);return d.toLocaleDateString('it-IT')+' '+d.toLocaleTimeString('it-IT',{hour:'2-digit',minute:'2-digit'})}catch{return''}}
 // apre "aggiungi ricarica" con la data già dentro il bimestre scelto (null = oggi)
-function openRicPer(k){
+function setRicTipo(t){
+  const h=document.getElementById('ric-tipo');if(h)h.value=t;
+  const c=document.getElementById('ric-t-casa'),l=document.getElementById('ric-t-lavoro');
+  if(c)c.className='btn bsm '+(t==='casa'?'bo':'bgh');if(l)l.className='btn bsm '+(t==='lavoro'?'bg':'bgh');
+}
+function openRicPer(k,tipo){
   openMo('mo-ric');
+  setRicTipo(tipo||'lavoro');
   const e=document.getElementById('ric-data');if(!e)return;
   e.max=td();
   if(!k){e.value=td();return}
@@ -1185,9 +1259,19 @@ function saveRicManuale(){
   if(!(n(kwh)>0)){showToast('Inserisci i kWh',false,true);return}
   const data=normData(document.getElementById('ric-data')?.value)||td();
   if(data>td()){showToast('La data è nel futuro',false,true);return}
-  ricAz.push({id:nuovoId(),data,kwh,note:document.getElementById('ric-note')?.value.trim()||'',fonte:'manuale'});
+  const nota=document.getElementById('ric-note')?.value.trim()||'';
+  if(document.getElementById('ric-tipo')?.value==='casa'){
+    if(giaPresente(data,kwh)==='casa'){showToast('Ricarica già presente',false,true);return}
+    ricCasaL.push({id:nuovoId(),data,kwh,note:nota,fonte:'manuale'});ricCasaL.sort((a,b)=>a.data>b.data?-1:1);
+    LS.set('rt_riccasa',ricCasaL);closeMo('mo-ric');
+    logEv('ricarica',`Ricarica casa ${fd(data)} · ${n(kwh)} kWh (manuale)`);
+    ['ric-kwh','ric-note'].forEach(i=>{const e=document.getElementById(i);if(e)e.value=''});
+    render();showToast('✓ Ricarica di casa aggiunta',true);return;
+  }
+  ricAz.push({id:nuovoId(),data,kwh,note:nota,fonte:'manuale'});
   ricAz.sort((a,b)=>String(b.data)>String(a.data)?1:-1);
   LS.set('rt_ricaz',ricAz);closeMo('mo-ric');
+  ['ric-kwh','ric-note'].forEach(i=>{const e=document.getElementById(i);if(e)e.value=''});
   const k=bimKey(data);
   logEv('ricarica',`Ricarica ${fd(data)} · ${n(kwh)} kWh (manuale) → ${bimLbl(k)}`);
   render();
@@ -1230,18 +1314,6 @@ function delBim(k){
     render();
     offriAnnulla(b.label+' eliminato',snap);
   });
-}
-function openFotoAz(){
-  const inp=document.getElementById('az-fi');
-  // ricrea l'input per forzare il trigger su tutti i browser
-  const clone=inp.cloneNode(true);
-  inp.parentNode.replaceChild(clone,inp);
-  clone.addEventListener('change',e=>{
-    const fs=Array.from(e.target.files||[]);
-    if(fs.length)extractAz(fs);
-    else showToast('Nessun file selezionato',false,true);
-  });
-  clone.click();
 }
 
 // ── INVIO ALL'AZIENDA E PAGAMENTO (per chiave di bimestre, es. "2026-B4") ──
@@ -1913,92 +1985,111 @@ async function extractScontrino(files){
   }catch(e){if(e.message!=='no key')showToast('Errore AI: '+e.message,false,true)}
   if(l)l.style.display='none';
 }
-async function extractRic(files,tipo){
-  const list=toList(files);
-  const pid=tipo==='casa'?'pv-ca':'pv-la',lid=tipo==='casa'?'ld-ca':'ld-la';
-  showPrevMulti(list,pid);const l=document.getElementById(lid);if(l)l.style.display='flex';
-  const rif=(luoCasa||luoLav)?`\nRiferimenti dell'utente (per il punto 2):\n- CASA: ${luoCasa||'(non impostato)'}\n- LAVORO: ${luoLav||'(non impostato)'}`:'';
-  try{const j=await callGemini(list,'Più foto di ricariche auto (display wallbox o app). IMPORTANTE: ogni foto è una ricarica DISTINTA, leggile UNA PER UNA e NON sommarle tra loro (a meno che due foto siano la stessa identica schermata). Per OGNI ricarica indica il tipo (casa o lavoro) e i kWh.\nDETERMINA IL TIPO IN QUEST\'ORDINE DI PRIORITÀ:\n1) Se nella foto compare la parola "casa"/"home" → tipo="casa"; se compare "lavoro"/"azienda"/"work" → tipo="lavoro". Questa scritta esplicita ha SEMPRE la precedenza.\n2) SOLO se al punto 1 non trovi nessuna di quelle parole, confronta indirizzo, nome stazione/wallbox/ID o fornitore visibili con i riferimenti dell\'utente qui sotto.\n3) Se resti incerto, tipo="".'+rif+'\nJSON puro:\n{"letture":[{"tipo":"casa|lavoro|","kwh":""}]}\nUna voce per ogni ricarica letta. Solo JSON.',800);
-    const p=JSON.parse(j);
-    const letture=(p.letture||[]).filter(r=>r&&String(r.kwh).trim()!==''&&n(r.kwh)>0);
-    if(l)l.style.display='none';
-    if(!letture.length){showToast('⚠️ Nessun kWh trovato nelle foto',false,true);return}
-    openRicRev(letture);
-  }catch(e){if(l)l.style.display='none';if(e.message!=='no key')showToast('Errore AI: '+e.message,false,true)}
-}
-// ── REVISIONE RICARICHE (conferma/correzione casa-lavoro prima del salvataggio) ──
-let ricRev=[];
-function openRicRev(letture){
-  ricRev=letture.map(r=>{
-    const t=String(r.tipo||'').toLowerCase();
-    return {kwh:r2(n(r.kwh)),tipo:t.includes('lav')?'lavoro':(t.includes('cas')?'casa':'')};
+// ── CARICAMENTO RICARICHE DA FOTO (casa e lavoro, con data) ──
+// Un solo punto di ingresso: dalla tab Rimborso, dal ciclo o dagli step Casa/Lavoro.
+// Le ricariche lette passano da una schermata di conferma (data, kWh, casa/lavoro) e poi:
+// lavoro → rimborso aziendale (bimestre della data), casa → elenco casa; i cicli le contano da soli.
+function openFotoRic(tipoDefault){
+  const inp=document.getElementById('az-fi');
+  const clone=inp.cloneNode(true); // ricreato per far ripartire il "change" su tutti i browser
+  inp.parentNode.replaceChild(clone,inp);
+  clone.addEventListener('change',e=>{
+    const fs=Array.from(e.target.files||[]);
+    if(fs.length)importaRicariche(fs,tipoDefault);
+    else showToast('Nessun file selezionato',false,true);
   });
-  renderRicRev();
-  document.getElementById('mo-ricrev').style.display='flex';
+  clone.click();
 }
-function renderRicRev(){
-  const b=document.getElementById('ricrev-body');if(!b)return;
-  b.innerHTML=ricRev.map((r,i)=>`
-    <div style="display:flex;gap:8px;align-items:center;margin-bottom:10px">
-      <input type="text" inputmode="decimal" value="${r.kwh}" oninput="ricRev[${i}].kwh=this.value"
-        style="width:84px;padding:8px;background:var(--bg3);border:1px solid var(--bd);border-radius:6px;color:#fff"/>
-      <span style="color:var(--mu);font-size:12px">kWh</span>
-      <div style="display:flex;gap:6px;margin-left:auto">
-        <button class="btn bsm ${r.tipo==='casa'?'bo':'bgh'}" onclick="ricRev[${i}].tipo='casa';renderRicRev()">🏠 Casa</button>
-        <button class="btn bsm ${r.tipo==='lavoro'?'bg':'bgh'}" onclick="ricRev[${i}].tipo='lavoro';renderRicRev()">🏢 Lavoro</button>
-      </div>
-    </div>`).join('');
-  let tc=0,tl=0;ricRev.forEach(r=>{const k=n(r.kwh);if(r.tipo==='casa')tc+=k;else if(r.tipo==='lavoro')tl+=k});
-  b.innerHTML+=`<div style="margin-top:6px;padding-top:10px;border-top:1px solid var(--bd);font-size:13px;display:flex;justify-content:space-between">
-    <span>🏠 Casa <strong>${r2(tc)}</strong> kWh</span><span>🏢 Lavoro <strong>${r2(tl)}</strong> kWh</span></div>`;
-}
-function saveRicRev(){
-  if(ricRev.some(r=>!r.tipo)){showToast('⚠️ Assegna Casa o Lavoro a tutte le ricariche',false,true);return}
-  let totCasa=0,totLav=0;
-  ricRev.forEach(r=>{const k=n(r.kwh);if(!k)return;if(r.tipo==='casa')totCasa+=k;else totLav+=k});
-  totCasa=r2(totCasa);totLav=r2(totLav);
-  if(totCasa>0)cycle.ricCasa={kwh:String(totCasa)};
-  if(totLav>0)cycle.ricLav={kwh:String(totLav)};
-  LS.set('rt_cycle',cycle);closeMo('mo-ricrev');render();
-  showToast('✓ Salvate: 🏠 '+totCasa+' · 🏢 '+totLav+' kWh',true);
-}
-// Ricariche aziendali da foto/screenshot (wallbox o app): una o più foto, lette una alla volta
-// (ogni screenshot ha sessioni diverse). Le ricariche finiscono da sole nel bimestre della loro data.
-async function extractAz(files){
-  const lista=toList(files);
-  let nuove=0,saltate=0,daVerificare=0,vuote=0;const perBim={},errori=[];
+function openFotoAz(){openFotoRic('lavoro')}
+async function importaRicariche(files,tipoDefault){
+  const lista=toList(files),letture=[],errori=[];let vuote=0;
+  const rif=(luoCasa||luoLav)?`\nRiferimenti dell'utente (per il punto 2):\n- CASA: ${luoCasa||'(non impostato)'}\n- LAVORO: ${luoLav||'(non impostato)'}`:'';
   for(let i=0;i<lista.length;i++){
-    const toast=showToast(lista.length>1?`Lettura foto ${i+1} di ${lista.length}...`:'Lettura ricarica...',false);
+    const toast=showToast(lista.length>1?`Lettura foto ${i+1} di ${lista.length}...`:'Lettura ricariche...',false);
     try{
-      const j=await callGemini(lista[i],'Display wallbox o app di ricarica auto (anche elenco/storico sessioni). Elenca TUTTE le sessioni visibili. JSON puro:\n{"sessioni":[{"data":"YYYY-MM-DD","kwh":""}]}\nLa data DEVE essere nel formato YYYY-MM-DD (es. 2026-08-05). Se l\'anno non e visibile usa '+td().slice(0,4)+'. Se la data non e visibile usa '+td()+'. kwh solo il numero. Solo JSON.',1500);
+      const j=await callGemini(lista[i],'Foto o screenshot di ricariche di un\'auto elettrica (display wallbox o app, anche elenco/storico sessioni). Elenca TUTTE le sessioni visibili, ognuna separata (non sommarle). Per ognuna: data, kWh e tipo (casa o lavoro).\nTIPO, in ordine di priorità:\n1) se compare "casa"/"home" → "casa"; se compare "lavoro"/"azienda"/"work"/"ufficio" → "lavoro". La scritta esplicita vince sempre.\n2) altrimenti confronta indirizzo, nome stazione/wallbox o fornitore con i riferimenti qui sotto.\n3) se resti incerto, tipo="".'+rif+'\nJSON puro:\n{"sessioni":[{"data":"YYYY-MM-DD","kwh":"","tipo":"casa|lavoro|"}]}\nLa data DEVE essere nel formato YYYY-MM-DD. Se l\'anno non e visibile usa '+td().slice(0,4)+'. Se la data non e visibile usa '+td()+'. kwh solo il numero. Solo JSON.',2000);
       const p=JSON.parse(j);
-      const sessioni=(p.sessioni||[]).filter(s=>s&&s.kwh&&n(s.kwh)>0);
-      if(!sessioni.length)vuote++;
-      sessioni.forEach(s=>{
-        const data=dataRicarica(s.data),kwh=String(s.kwh).trim();
-        const dup=r=>normData(r.data)===data&&n(r.kwh)===n(kwh);
-        if(ricAz.some(dup)||bimArch.some(b=>(b.ricariche||[]).some(dup))){saltate++;return;}
-        ricAz.push({id:nuovoId(),data,kwh,note:'',fonte:'foto'});nuove++;
-        const k=bimKey(data);
-        if(!k||k>curBim())daVerificare++;else perBim[k]=(perBim[k]||0)+1;
+      const sess=(p.sessioni||[]).filter(s=>s&&n(s.kwh)>0);
+      if(!sess.length)vuote++;
+      sess.forEach(s=>{
+        const t=String(s.tipo||'').toLowerCase();
+        letture.push({data:dataRicarica(s.data),kwh:r2(n(s.kwh)),tipo:t.includes('lav')?'lavoro':t.includes('cas')?'casa':(tipoDefault||'')});
       });
-      ricAz.sort((a,b)=>String(b.data)>String(a.data)?1:-1);LS.set('rt_ricaz',ricAz);
     }catch(e){errori.push((lista.length>1?'foto '+(i+1)+': ':'')+e.message);if(/Chiave|no key/.test(e.message))i=lista.length}
     removeToast(toast);
   }
-  if(nuove)logEv('ricarica',`${plur(nuove,'ricarica letta','ricariche lette')} da ${plur(lista.length,'foto','foto')}`+(Object.keys(perBim).length?' → '+Object.keys(perBim).sort().map(k=>bimLbl(k)+' ('+perBim[k]+')').join(', '):''));
-  autoChiudiBimestri(true); // sposto subito nei bimestri chiusi: il messaggio qui sotto dice già dove
+  if(!letture.length){
+    if(errori.length)showToast('Errore AI: '+errori.join(' · '),false,true);
+    else showToast('⚠️ Nessuna ricarica leggibile nelle foto',false,true);
+    return;
+  }
+  openRicRev(letture,{vuote,errori});
+}
+// ── SCHERMATA DI CONFERMA ──
+let ricRev=[],ricRevInfo={};
+function giaPresente(data,kwh){
+  const d=normData(data),k=n(kwh),uguale=r=>normData(r.data)===d&&n(r.kwh)===k;
+  if(ricCasaL.some(uguale))return'casa';
+  if(tutteLavoro().some(x=>uguale(x.r)))return'lavoro';
+  return'';
+}
+function openRicRev(letture,info){
+  ricRevInfo=info||{};
+  ricRev=letture.map(x=>{const dup=giaPresente(x.data,x.kwh);return{...x,dup,incl:!dup}})
+    .sort((a,b)=>String(a.data)>String(b.data)?1:-1);
+  renderRicRev();
+  document.getElementById('mo-ricrev').style.display='flex';
+}
+function ricRevTutte(t){ricRev.forEach(r=>{if(r.incl)r.tipo=t});renderRicRev()}
+function renderRicRev(){
+  const b=document.getElementById('ricrev-body');if(!b)return;
+  const nDup=ricRev.filter(r=>r.dup).length;
+  const avvisi=[];
+  if(nDup)avvisi.push(`${plur(nDup,'ricarica già presente','ricariche già presenti')}: non verranno salvate (spunta per forzare)`);
+  if(ricRevInfo.vuote)avvisi.push(plur(ricRevInfo.vuote,'foto senza ricariche leggibili','foto senza ricariche leggibili'));
+  if(ricRevInfo.errori&&ricRevInfo.errori.length)avvisi.push('Errore AI: '+ricRevInfo.errori.join(' · '));
+  b.innerHTML=(avvisi.length?`<div style="font-size:11px;color:var(--o);margin-bottom:8px">⚠️ ${avvisi.map(es).join('<br/>⚠️ ')}</div>`:'')+
+    `<div class="brow" style="margin-bottom:10px"><button class="btn bgh bsm" onclick="ricRevTutte('casa')">Tutte 🏠 Casa</button><button class="btn bgh bsm" onclick="ricRevTutte('lavoro')">Tutte 🏢 Lavoro</button></div>`+
+    ricRev.map((r,i)=>{
+      const dOk=!!normData(r.data)&&normData(r.data)<=td();
+      return`<div style="display:flex;gap:6px;align-items:center;flex-wrap:wrap;padding:8px 0;border-bottom:1px solid var(--bd);opacity:${r.incl?1:.45}">
+      <input type="checkbox" ${r.incl?'checked':''} onchange="ricRev[${i}].incl=this.checked;renderRicRev()" style="width:20px;height:20px;accent-color:#22c55e"/>
+      <input type="date" value="${normData(r.data)}" max="${td()}" onchange="ricRev[${i}].data=this.value;ricRev[${i}].dup=giaPresente(this.value,ricRev[${i}].kwh);renderRicRev()"
+        style="padding:6px;background:var(--bg3);border:1px solid ${dOk?'var(--bd)':'var(--r)'};border-radius:6px;color:var(--tx);color-scheme:dark;font-size:13px;width:132px"/>
+      <input type="text" inputmode="decimal" value="${r.kwh}" onchange="ricRev[${i}].kwh=r2(n(this.value));renderRicRev()"
+        style="width:62px;padding:6px;background:var(--bg3);border:1px solid var(--bd);border-radius:6px;color:var(--tx);font-size:13px"/>
+      <span style="color:var(--mu);font-size:11px">kWh</span>
+      <div style="display:flex;gap:4px;margin-left:auto">
+        <button class="btn bsm ${r.tipo==='casa'?'bo':'bgh'}" style="padding:6px 9px" onclick="ricRev[${i}].tipo='casa';renderRicRev()">🏠</button>
+        <button class="btn bsm ${r.tipo==='lavoro'?'bg':'bgh'}" style="padding:6px 9px" onclick="ricRev[${i}].tipo='lavoro';renderRicRev()">🏢</button>
+      </div>
+      ${r.dup?`<div style="width:100%;font-size:10px;color:var(--mu);padding-left:26px">già presente tra le ricariche ${r.dup==='casa'?'di casa':'al lavoro'}</div>`:''}
+      ${!dOk?`<div style="width:100%;font-size:10px;color:var(--r);padding-left:26px">data da correggere</div>`:''}
+    </div>`}).join('');
+  let tc=0,tl=0,nc=0,nl=0;ricRev.forEach(r=>{if(!r.incl)return;if(r.tipo==='casa'){tc+=n(r.kwh);nc++}else if(r.tipo==='lavoro'){tl+=n(r.kwh);nl++}});
+  b.innerHTML+=`<div style="margin-top:8px;font-size:13px;display:flex;justify-content:space-between">
+    <span>🏠 ${nc} · <strong>${r2(tc)}</strong> kWh</span><span>🏢 ${nl} · <strong>${r2(tl)}</strong> kWh</span></div>`;
+}
+function saveRicRev(){
+  const da=ricRev.filter(r=>r.incl);
+  if(!da.length){closeMo('mo-ricrev');return}
+  if(da.some(r=>!r.tipo)){showToast('⚠️ Scegli 🏠 o 🏢 per tutte le ricariche spuntate',false,true);return}
+  if(da.some(r=>!normData(r.data)||normData(r.data)>td())){showToast('⚠️ Correggi le date segnate in rosso',false,true);return}
+  if(da.some(r=>!(n(r.kwh)>0))){showToast('⚠️ Ogni ricarica deve avere i kWh',false,true);return}
+  const perBim={};let nc=0,nl=0;
+  da.forEach(r=>{
+    const x={id:nuovoId(),data:normData(r.data),kwh:String(r2(n(r.kwh))),note:'',fonte:'foto'};
+    if(r.tipo==='casa'){ricCasaL.push(x);nc++}
+    else{ricAz.push(x);nl++;const k=bimKey(x.data);perBim[k]=(perBim[k]||0)+1}
+  });
+  ricCasaL.sort((a,b)=>a.data>b.data?-1:1);ricAz.sort((a,b)=>String(b.data)>String(a.data)?1:-1);
+  LS.set('rt_riccasa',ricCasaL);LS.set('rt_ricaz',ricAz);
+  logEv('ricarica',`Ricariche da foto: ${nc} casa, ${nl} lavoro`+(nl?' → '+Object.keys(perBim).sort().map(k=>bimLbl(k)+' ('+perBim[k]+')').join(', '):''));
+  closeMo('mo-ricrev');
+  autoChiudiBimestri(true);
   render();
-  const dove=Object.keys(perBim).sort().map(k=>bimLbl(k)+' '+perBim[k]+(k===curBim()?'':' (chiuso)')).join(', ');
-  const parti=[];
-  if(nuove)parti.push('✓ '+plur(nuove,'ricarica aggiunta','ricariche aggiunte')+(dove?': '+dove:''));
-  if(saltate)parti.push(saltate+' già presenti');
-  if(daVerificare)parti.push('⚠️ '+daVerificare+' con data da verificare');
-  if(vuote)parti.push('⚠️ '+plur(vuote,'foto senza ricariche leggibili','foto senza ricariche leggibili'));
-  if(errori.length)parti.push('Errore AI: '+errori.join(' · '));
-  if(!parti.length)parti.push('⚠️ Nessun kWh trovato');
-  const ok=nuove&&!daVerificare&&!errori.length&&!vuote;
-  showToast(parti.join(' · '),ok,!ok);
+  const dove=Object.keys(perBim).sort().map(k=>bimLbl(k)+(k===curBim()?'':' chiuso')).join(', ');
+  showToast(`✓ Salvate ${nc} 🏠 · ${nl} 🏢`+(dove?' (lavoro in '+dove+')':''),true);
 }
 async function extractBoll(file,tipo){
   const isCasa=tipo==='casa';
@@ -2053,7 +2144,7 @@ function showToast(msg,ok,err){
 function removeToast(t){if(t&&document.body.contains(t))document.body.removeChild(t)}
 
 // ── ANNULLA: copia dei dati prima di un'eliminazione + barra "Annulla" per 7 secondi ──
-function snapDati(){return JSON.stringify({ricAz,bimArch,hist,cycle,documenti})}
+function snapDati(){return JSON.stringify({ricAz,ricCasaL,bimArch,hist,cycle,documenti})}
 let undoTimer=null;
 function offriAnnulla(msg,snap){
   const old=document.getElementById('undo-bar');if(old)old.remove();
@@ -2064,7 +2155,7 @@ function offriAnnulla(msg,snap){
   b.innerHTML=`<span>${es(msg)}</span><button class="btn bo bsm" style="flex-shrink:0">↩️ Annulla</button>`;
   b.querySelector('button').onclick=()=>{
     const d=JSON.parse(snap);
-    ricAz=d.ricAz;bimArch=d.bimArch;hist=d.hist;cycle=d.cycle;if(d.documenti)documenti=d.documenti;
+    ricAz=d.ricAz;bimArch=d.bimArch;hist=d.hist;cycle=d.cycle;if(d.documenti)documenti=d.documenti;if(d.ricCasaL)ricCasaL=d.ricCasaL;LS.set('rt_riccasa',ricCasaL);
     LS.set('rt_ricaz',ricAz);LS.set('rt_bimarch',bimArch);LS.set('rt_hist',hist);LS.set('rt_cycle',cycle);LS.set('rt_docs',documenti);
     logEv('annulla','Ripristinata l\'ultima eliminazione ('+msg+')');
     clearTimeout(undoTimer);b.remove();render();showToast('✓ Ripristinato',true);
@@ -2356,7 +2447,7 @@ async function expData(){
     rt_bim_active:LS.get('rt_bim_active',''),
     rt_coeff_bim:LS.get('rt_coeff_bim',{}),rt_boll_bim:LS.get('rt_boll_bim',{}),rt_kwh_from:LS.get('rt_kwh_from',''),
     rt_coeff_casa_bim:LS.get('rt_coeff_casa_bim',{}),rt_boll_casa_bim:LS.get('rt_boll_casa_bim',{}),rt_kwh_casa_from:LS.get('rt_kwh_casa_from',''),
-    rt_docs:documenti,rt_log:registro,
+    rt_docs:documenti,rt_log:registro,rt_riccasa:ricCasaL,
     rt_luo_casa:luoCasa,rt_luo_lav:luoLav,
     rt_cycle:cycle
   };
@@ -2413,6 +2504,7 @@ function impData(file){
       if(data.rt_kwh_from!==undefined)LS.set('rt_kwh_from',data.rt_kwh_from);
       ['rt_coeff_casa_bim','rt_boll_casa_bim','rt_kwh_casa_from'].forEach(k=>{if(data[k]!==undefined)LS.set(k,data[k])});
       if(Array.isArray(data.rt_docs)){documenti=data.rt_docs;LS.set('rt_docs',documenti)}
+      if(Array.isArray(data.rt_riccasa)){ricCasaL=data.rt_riccasa;LS.set('rt_riccasa',ricCasaL)}
       if(Array.isArray(data.rt_log)){registro=data.rt_log;LS.set('rt_log',registro)}
       logEv('backup','Backup importato ('+(data.exportDate?fdt(data.exportDate):'data sconosciuta')+')');
       if(data.rt_boll_casa)LS.set('rt_boll_casa',data.rt_boll_casa);
@@ -2442,8 +2534,6 @@ function attachEv(){
   const multi=[
     ['cr',extractCruscotto],
     ['sc',extractScontrino],
-    ['ca',f=>extractRic(f,'casa')],
-    ['la',f=>extractRic(f,'lavoro')],
   ];
   multi.forEach(([b,fn])=>['cam','gal'].forEach(s=>{const el=document.getElementById('fi-'+b+'-'+s);if(el)el.addEventListener('change',e=>{if(e.target.files.length)fn(e.target.files)})}));
   // bollette: singolo file/PDF
