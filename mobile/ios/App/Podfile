@@ -3,10 +3,13 @@ require_relative '../../node_modules/@capacitor/ios/scripts/pods_helpers'
 platform :ios, '15.0'
 use_frameworks!
 
-# workaround to avoid Xcode caching of Pods that requires
-# Product -> Clean Build Folder after new Cordova plugins installed
-# Requires CocoaPods 1.6 or newer
-install! 'cocoapods', :disable_input_output_paths => true
+# Gli avvisi di deprecazione vengono dal codice delle librerie Capacitor (non dal nostro):
+# li silenzio solo per i pod, così in Xcode restano visibili quelli dell'app.
+inhibit_all_warnings!
+
+# NB: rimosso `install! 'cocoapods', :disable_input_output_paths => true`.
+# Serviva solo con plugin Cordova; senza input/output i passaggi "[CP] Embed Pods Frameworks"
+# e "[CP] Copy XCFrameworks" giravano a ogni build e Xcode mostrava un avviso.
 
 def capacitor_pods
   pod 'Capacitor', :path => '../../node_modules/@capacitor/ios'
@@ -22,10 +25,22 @@ end
 
 post_install do |installer|
   assertDeploymentTarget(installer)
-  # Xcode recenti supportano solo iOS 15+: allinea tutti i pod (le loro podspec dichiarano 14.0)
+
+  # Versione di Xcode installata (es. 27.0 → "2700"): segna il progetto Pods come già aggiornato,
+  # altrimenti a ogni `pod install` torna l'avviso "Update to recommended settings".
+  xcode = `xcodebuild -version 2>/dev/null`[/Xcode (\d+)\.(\d+)/] ? format('%d%d0', $1.to_i, $2.to_i).rjust(4, '0') : nil
+  if xcode
+    installer.pods_project.root_object.attributes['LastUpgradeCheck'] = xcode
+    installer.pods_project.root_object.attributes['LastSwiftUpdateCheck'] = xcode
+  end
+
   installer.pods_project.targets.each do |target|
     target.build_configurations.each do |config|
+      # Xcode recenti supportano solo iOS 15+: allinea tutti i pod (le loro podspec dichiarano 14.0)
       config.build_settings['IPHONEOS_DEPLOYMENT_TARGET'] = '15.0'
+      # avvisi del codice delle librerie (Swift e Objective-C) nascosti
+      config.build_settings['SWIFT_SUPPRESS_WARNINGS'] = 'YES'
+      config.build_settings['GCC_WARN_INHIBIT_ALL_WARNINGS'] = 'YES'
     end
   end
 end
