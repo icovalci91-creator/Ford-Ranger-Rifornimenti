@@ -8,7 +8,7 @@
 <meta name="apple-mobile-web-app-title" content="RangerTrack"/>
 <meta name="theme-color" content="#0f0f0f"/>
 <meta http-equiv="Cache-Control" content="no-cache,no-store,must-revalidate"/>
-<title>RangerTrack v2026.10.01-4</title>
+<title>RangerTrack v2026.10.02-1</title>
 <link rel="apple-touch-icon" href="/apple-touch-icon.png"/>
 <link rel="preconnect" href="https://fonts.googleapis.com"/>
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@400;700;900&family=Barlow:wght@400;500&display=swap"/>
@@ -238,7 +238,7 @@ hr{border:none;border-top:1px solid var(--bd);margin:14px 0}
 </div>
 
 <!-- Hidden inputs -->
-<input type="file" accept="image/*" id="az-fi" style="position:fixed;top:-100px;left:-100px;opacity:0"/>
+<input type="file" accept="image/*" multiple id="az-fi" style="position:fixed;top:-100px;left:-100px;opacity:0"/>
 <input type="file" accept=".json" id="imp-fi" style="display:none"/>
 <span id="kwh-pill" style="display:none"></span>
 <div id="parea"></div>
@@ -377,7 +377,7 @@ hr{border:none;border-top:1px solid var(--bd);margin:14px 0}
 </div>
 
 <script>
-const APP_VER='2026.10.01-4';
+const APP_VER='2026.10.02-1';
 // ── STORAGE ──────────────────────────────────────────────────────────────────
 const LS={
   get:(k,d)=>{try{const v=localStorage.getItem(k);return v!==null?JSON.parse(v):d}catch{return d}},
@@ -1237,8 +1237,8 @@ function openFotoAz(){
   const clone=inp.cloneNode(true);
   inp.parentNode.replaceChild(clone,inp);
   clone.addEventListener('change',e=>{
-    const f=e.target.files?.[0];
-    if(f)extractAz(f);
+    const fs=Array.from(e.target.files||[]);
+    if(fs.length)extractAz(fs);
     else showToast('Nessun file selezionato',false,true);
   });
   clone.click();
@@ -1962,33 +1962,43 @@ function saveRicRev(){
   LS.set('rt_cycle',cycle);closeMo('mo-ricrev');render();
   showToast('✓ Salvate: 🏠 '+totCasa+' · 🏢 '+totLav+' kWh',true);
 }
-async function extractAz(file){
-  const toast=showToast('Lettura ricarica...',false);
-  try{const j=await callGemini(file,'Display wallbox o app di ricarica auto. Possono esserci piu sessioni. JSON puro:\n{"sessioni":[{"data":"YYYY-MM-DD","kwh":""}]}\nLa data DEVE essere nel formato YYYY-MM-DD (es. 2026-08-05). Se l\'anno non e visibile usa '+td().slice(0,4)+'. Se la data non e visibile usa '+td()+'. kwh solo il numero. Solo JSON.',600);
-    const p=JSON.parse(j);
-    const sessioni=(p.sessioni||[]).filter(s=>s&&s.kwh&&n(s.kwh)>0);
-    let nuove=0,saltate=0,daVerificare=0;
-    const perBim={};
-    sessioni.forEach(s=>{
-      const data=dataRicarica(s.data),kwh=String(s.kwh).trim();
-      const dup=r=>normData(r.data)===data&&n(r.kwh)===n(kwh);
-      if(ricAz.some(dup)||bimArch.some(b=>(b.ricariche||[]).some(dup))){saltate++;return;}
-      ricAz.push({id:nuovoId(),data,kwh,note:'',fonte:'foto'});nuove++;
-      const k=bimKey(data);
-      if(!k||k>curBim())daVerificare++;else perBim[k]=(perBim[k]||0)+1;
-    });
-    ricAz.sort((a,b)=>String(b.data)>String(a.data)?1:-1);LS.set('rt_ricaz',ricAz);
-    if(nuove)logEv('ricarica',`${plur(nuove,'ricarica letta','ricariche lette')} da foto`+(Object.keys(perBim).length?' → '+Object.keys(perBim).sort().map(k=>bimLbl(k)+' ('+perBim[k]+')').join(', '):''));
+// Ricariche aziendali da foto/screenshot (wallbox o app): una o più foto, lette una alla volta
+// (ogni screenshot ha sessioni diverse). Le ricariche finiscono da sole nel bimestre della loro data.
+async function extractAz(files){
+  const lista=toList(files);
+  let nuove=0,saltate=0,daVerificare=0,vuote=0;const perBim={},errori=[];
+  for(let i=0;i<lista.length;i++){
+    const toast=showToast(lista.length>1?`Lettura foto ${i+1} di ${lista.length}...`:'Lettura ricarica...',false);
+    try{
+      const j=await callGemini(lista[i],'Display wallbox o app di ricarica auto (anche elenco/storico sessioni). Elenca TUTTE le sessioni visibili. JSON puro:\n{"sessioni":[{"data":"YYYY-MM-DD","kwh":""}]}\nLa data DEVE essere nel formato YYYY-MM-DD (es. 2026-08-05). Se l\'anno non e visibile usa '+td().slice(0,4)+'. Se la data non e visibile usa '+td()+'. kwh solo il numero. Solo JSON.',1500);
+      const p=JSON.parse(j);
+      const sessioni=(p.sessioni||[]).filter(s=>s&&s.kwh&&n(s.kwh)>0);
+      if(!sessioni.length)vuote++;
+      sessioni.forEach(s=>{
+        const data=dataRicarica(s.data),kwh=String(s.kwh).trim();
+        const dup=r=>normData(r.data)===data&&n(r.kwh)===n(kwh);
+        if(ricAz.some(dup)||bimArch.some(b=>(b.ricariche||[]).some(dup))){saltate++;return;}
+        ricAz.push({id:nuovoId(),data,kwh,note:'',fonte:'foto'});nuove++;
+        const k=bimKey(data);
+        if(!k||k>curBim())daVerificare++;else perBim[k]=(perBim[k]||0)+1;
+      });
+      ricAz.sort((a,b)=>String(b.data)>String(a.data)?1:-1);LS.set('rt_ricaz',ricAz);
+    }catch(e){errori.push((lista.length>1?'foto '+(i+1)+': ':'')+e.message);if(/Chiave|no key/.test(e.message))i=lista.length}
     removeToast(toast);
-    autoChiudiBimestri(true); // sposto subito nei bimestri chiusi: il messaggio qui sotto dice già dove
-    if(nuove>0){
-      const dove=Object.keys(perBim).sort().map(k=>bimLbl(k)+(k===curBim()?'':' (chiuso)')).join(', ');
-      showToast('✓ '+nuove+' aggiunte'+(dove?' in '+dove:'')+(saltate?' · '+saltate+' già presenti':'')+(daVerificare?' · ⚠️ '+daVerificare+' con data da verificare':''),!daVerificare,!!daVerificare);
-      render();
-    }
-    else if(saltate>0)showToast('⚠️ Tutte le '+saltate+' ricariche già presenti',false,true);
-    else showToast('⚠️ Nessun kWh trovato nella foto',false,true);
-  }catch(e){removeToast(toast);showToast('Errore AI: '+e.message,false,true)}
+  }
+  if(nuove)logEv('ricarica',`${plur(nuove,'ricarica letta','ricariche lette')} da ${plur(lista.length,'foto','foto')}`+(Object.keys(perBim).length?' → '+Object.keys(perBim).sort().map(k=>bimLbl(k)+' ('+perBim[k]+')').join(', '):''));
+  autoChiudiBimestri(true); // sposto subito nei bimestri chiusi: il messaggio qui sotto dice già dove
+  render();
+  const dove=Object.keys(perBim).sort().map(k=>bimLbl(k)+' '+perBim[k]+(k===curBim()?'':' (chiuso)')).join(', ');
+  const parti=[];
+  if(nuove)parti.push('✓ '+plur(nuove,'ricarica aggiunta','ricariche aggiunte')+(dove?': '+dove:''));
+  if(saltate)parti.push(saltate+' già presenti');
+  if(daVerificare)parti.push('⚠️ '+daVerificare+' con data da verificare');
+  if(vuote)parti.push('⚠️ '+plur(vuote,'foto senza ricariche leggibili','foto senza ricariche leggibili'));
+  if(errori.length)parti.push('Errore AI: '+errori.join(' · '));
+  if(!parti.length)parti.push('⚠️ Nessun kWh trovato');
+  const ok=nuove&&!daVerificare&&!errori.length&&!vuote;
+  showToast(parti.join(' · '),ok,!ok);
 }
 async function extractBoll(file,tipo){
   const isCasa=tipo==='casa';
