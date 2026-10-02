@@ -114,6 +114,24 @@ Come funziona:
 - vengono sincronizzate anche le impostazioni, compresa la chiave Gemini (resta nel tuo iCloud privato);
 - la versione web (Safari/PWA) non sincronizza: vale solo per l'app nativa.
 
+## Siri e Comandi rapidi
+
+Non serve configurare niente in Xcode: le azioni sono nel codice (`AppDelegate.swift`) e iOS le trova da solo
+dopo l'installazione. Serve iOS 16 o successivo (il Podfile alza il minimo dell'app a 16.0 se era più basso).
+
+Frasi (Siri in italiano), dove "RangerTrack" è il nome dell'app:
+- *"Ricarica lavoro in RangerTrack"* / *"Ricarica casa in RangerTrack"* → Siri chiede i kWh;
+- *"Aggiungi ricarica in RangerTrack"* → chiede casa o lavoro e i kWh;
+- *"Rimborso RangerTrack"* / *"Quanto mi devono in RangerTrack"* → legge bimestre in corso, da inviare, da incassare.
+
+Le stesse azioni ("Aggiungi ricarica", "Situazione rimborso") sono nell'app **Comandi**: puoi crearne una con
+il nome che preferisci (es. "Ricarica ufficio", poi basta dire "Ehi Siri, ricarica ufficio") o usarle nelle
+**automazioni** (arrivo al lavoro, tag NFC sulla wallbox…).
+
+Come funziona: la ricarica dettata va in una coda e viene registrata appena l'app è attiva (subito se è già
+aperta), nel bimestre o ciclo giusto come le altre, e con iCloud arriva anche sull'altro dispositivo.
+Il riepilogo letto da Siri è quello dell'ultima apertura dell'app (se è vecchio di oltre un giorno lo dice).
+
 ## Migrazione dati dalla web-app all'app nativa
 
 I dati NON si trasferiscono da soli: web (Safari/PWA) e app nativa hanno storage separati.

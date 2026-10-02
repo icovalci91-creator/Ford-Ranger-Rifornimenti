@@ -8,7 +8,7 @@
 <meta name="apple-mobile-web-app-title" content="RangerTrack"/>
 <meta name="theme-color" content="#0f0f0f"/>
 <meta http-equiv="Cache-Control" content="no-cache,no-store,must-revalidate"/>
-<title>RangerTrack v2026.10.02-4</title>
+<title>RangerTrack v2026.10.02-5</title>
 <link rel="apple-touch-icon" href="/apple-touch-icon.png"/>
 <link rel="preconnect" href="https://fonts.googleapis.com"/>
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@400;700;900&family=Barlow:wght@400;500&display=swap"/>
@@ -397,7 +397,7 @@ hr{border:none;border-top:1px solid var(--bd);margin:14px 0}
 </div>
 
 <script>
-const APP_VER='2026.10.02-4';
+const APP_VER='2026.10.02-5';
 // ── STORAGE ──────────────────────────────────────────────────────────────────
 const LS={
   get:(k,d)=>{try{const v=localStorage.getItem(k);return v!==null?JSON.parse(v):d}catch{return d}},
@@ -792,6 +792,7 @@ function render(){
     el.innerHTML=`<div class="empty" style="border-color:var(--r);color:#fca5a5">⚠️ Questa schermata non si è caricata.<br/>Le altre tab funzionano. Manda uno screenshot di questo messaggio.<br/><br/><span style="font-size:11px">v${APP_VER} · ${es(e.message)}</span></div>`;
   }
   try{attachEv()}catch(e){console.error(e)}
+  try{siriAggiorna()}catch(e){console.error(e)}
 }
 
 // ══════════════════════════════════════════════════════════════════════════════
@@ -1565,7 +1566,7 @@ function rDocumenti(){
       </div>`;
     }).join('');
 }
-const ICONE_LOG={ricarica:'🔌',chiuso:'📦',bolletta:'🧾',coeff:'⚡',documento:'📄',condiviso:'📤',inviato:'📤',pagato:'✅',annulla:'↩️',elimina:'🗑️',ciclo:'⛽',backup:'💾',sync:'☁️'};
+const ICONE_LOG={ricarica:'🔌',chiuso:'📦',bolletta:'🧾',coeff:'⚡',documento:'📄',condiviso:'📤',inviato:'📤',pagato:'✅',annulla:'↩️',elimina:'🗑️',ciclo:'⛽',backup:'💾',sync:'☁️',siri:'🎙️'};
 function rRegistro(){
   if(!registro.length)return`<div class="empty">Il registro è vuoto.<br/>Da ora ogni operazione (ricariche, bollette,<br/>report, invii, pagamenti) viene annotata qui.</div>`;
   let h=`<div class="info">Tutte le operazioni, dalla più recente. Le ultime 500 restano salvate (e nel backup).</div>`,giorno='';
@@ -2653,6 +2654,74 @@ function rSyncBox(){
 }
 
 // ══════════════════════════════════════════════════════════════════════════════
+// SIRI E COMANDI RAPIDI (solo app iPhone/iPad)
+// ══════════════════════════════════════════════════════════════════════════════
+// "Ehi Siri, ricarica lavoro in RangerTrack" → la parte nativa mette la ricarica in coda e qui la registro
+// (bimestre/ciclo giusti come le altre). "Ehi Siri, rimborso RangerTrack" → Siri legge il riepilogo
+// che preparo a ogni aggiornamento della schermata.
+function siriPlugin(){const c=window.Capacitor;return c&&c.isNativePlatform&&c.isNativePlatform()&&c.Plugins&&c.Plugins.Siri||null}
+let siriImportando=false,siriTimer=null,siriUltimo='';
+async function siriImporta(){
+  const P=siriPlugin();if(!P||siriImportando)return;
+  siriImportando=true;
+  try{
+    const voci=((await P.leggiCoda())||{}).voci||[];
+    if(!voci.length)return;
+    const fatti=LS.get('rt_siri_fatti',[]),ids=[],righe=[];let nc=0,nl=0;
+    voci.forEach(v=>{
+      if(!v||!v.id)return;ids.push(v.id);
+      if(fatti.includes(v.id))return; // già registrata (conferma precedente non arrivata)
+      const kwh=r2(n(v.kwh)),data=normData(v.data)||td();
+      if(!(kwh>0))return;
+      const x={id:nuovoId(),data,kwh:String(kwh),note:'Siri',fonte:'siri'};
+      if(v.tipo==='casa'){ricCasaL.push(x);nc++}else{ricAz.push(x);nl++}
+      righe.push(`${v.tipo==='casa'?'🏠':'🏢'} ${kwh} kWh del ${fd(data)}`);
+      fatti.unshift(v.id);
+    });
+    if(nc+nl){
+      ricCasaL.sort((a,b)=>a.data>b.data?-1:1);ricAz.sort((a,b)=>String(b.data)>String(a.data)?1:-1);
+      LS.set('rt_riccasa',ricCasaL);LS.set('rt_ricaz',ricAz);
+      logEv('siri','Ricariche dettate a Siri: '+righe.join(', '));
+      autoChiudiBimestri(true);
+      renderSicuro();
+      showToast('🎙️ Da Siri: '+righe.join(' · '),true);
+    }
+    LS.set('rt_siri_fatti',fatti.slice(0,200));
+    await P.conferma({ids});
+  }catch(e){console.error('Siri',e)}
+  finally{siriImportando=false}
+}
+const MESI_PARLATI=['gennaio','febbraio','marzo','aprile','maggio','giugno','luglio','agosto','settembre','ottobre','novembre','dicembre'];
+function bimParlato(k){const m=/^(\d{4})-B([1-6])$/.exec(k||'');if(!m)return bimLbl(k);const i=(+m[2]-1)*2;return`${MESI_PARLATI[i]} e ${MESI_PARLATI[i+1]} ${m[1]}`}
+function euroParlati(v){const x=r2(n(v));return(Number.isInteger(x)?String(x):x.toFixed(2).replace('.',','))+' euro'}
+// testo che Siri legge per "situazione rimborso"
+function siriTesto(){
+  const k=curBim(),cK=coeffInfo(k).v,ric=ricAz.filter(r=>bimOfRic(r)===k);
+  const kwh=r2(ric.reduce((t,r)=>t+n(r.kwh),0)),df=daFareRimborso();
+  const p=[];
+  p.push(ric.length?`Bimestre di ${bimParlato(k)}: ${plur(ric.length,'ricarica','ricariche')} al lavoro, ${String(kwh).replace('.',',')} kilowattora, maturati circa ${euroParlati(kwh*cK)}.`
+    :`Bimestre di ${bimParlato(k)}: nessuna ricarica al lavoro finora.`);
+  if(df.invia.length)p.push('Da inviare: '+df.invia.map(b=>`${bimParlato(b.key)}, ${euroParlati(arrot(b.totImp))}`).join('; ')+'.');
+  if(df.attesaPag.length)p.push('In attesa di pagamento: '+df.attesaPag.map(b=>{const g=giorniDa(b.inviato);return`${bimParlato(b.key)}, ${euroParlati(b.inviatoImporto??arrot(b.totImp))}, inviato ${g===0?'oggi':g===1?'ieri':g+' giorni fa'}`}).join('; ')+'.');
+  if(df.bolletta.length)p.push('In attesa di bolletta: '+df.bolletta.map(b=>bimParlato(b.key)).join(', ')+'.');
+  if(!df.invia.length&&!df.attesaPag.length)p.push('Nessun rimborso da inviare o da incassare.');
+  return p.join(' ');
+}
+function siriAggiorna(){
+  if(!siriPlugin())return;
+  clearTimeout(siriTimer);
+  siriTimer=setTimeout(()=>{
+    try{const t=siriTesto();if(t===siriUltimo)return;siriUltimo=t;siriPlugin().pubblica({testo:t}).catch(()=>{siriUltimo=''})}catch(e){console.error('Siri',e)}
+  },1500);
+}
+function siriAvvia(){
+  const P=siriPlugin();if(!P)return;
+  siriImporta();siriAggiorna();
+  try{P.addListener('coda',()=>siriImporta())}catch(e){console.error(e)}
+  document.addEventListener('visibilitychange',()=>{if(document.visibilityState==='visible')siriImporta()});
+}
+
+// ══════════════════════════════════════════════════════════════════════════════
 // BACKUP
 // ══════════════════════════════════════════════════════════════════════════════
 function daysSinceBackup(){
@@ -2820,6 +2889,7 @@ const preloadPronto=(async function(){
 sw('ciclo');
 updateAiPill();
 preloadPronto.finally(avviaSync);
+siriAvvia();
 
 // iOS install hint
 const isIOS=/iphone|ipad|ipod/i.test(navigator.userAgent);

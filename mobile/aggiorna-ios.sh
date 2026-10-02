@@ -50,6 +50,11 @@ if grep -q "class CloudSyncPlugin" ios/App/App/AppDelegate.swift && grep -q 'cus
 else
   echo "✗ Plugin iCloud MANCANTE: manda una foto di questo messaggio"; ok=0
 fi
+if grep -q "struct RangerScorciatoie: AppShortcutsProvider" ios/App/App/AppDelegate.swift; then
+  echo "✓ Siri e Comandi rapidi inclusi (iOS minimo 16)"
+else
+  echo "✗ Azioni Siri MANCANTI: manda una foto di questo messaggio"; ok=0
+fi
 echo "✓ Versione webapp: $(grep -o "APP_VER='[^']*'" www/index.html)"
 echo "==========================================="
 [ $ok = 1 ] && echo "Fatto. Ora: npx cap open ios → Product › Clean Build Folder → Build +1 → Archive (o Run)."

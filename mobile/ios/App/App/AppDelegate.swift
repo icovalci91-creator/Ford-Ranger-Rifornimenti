@@ -1,5 +1,6 @@
 import UIKit
 import Capacitor
+import AppIntents
 
 @UIApplicationMain
 class AppDelegate: UIResponder, UIApplicationDelegate {
@@ -100,6 +101,7 @@ class SceneDelegate: UIResponder, UIWindowSceneDelegate {
 class RangerBridgeViewController: CAPBridgeViewController {
     override func capacitorDidLoad() {
         bridge?.registerPluginInstance(CloudSyncPlugin())
+        bridge?.registerPluginInstance(SiriPlugin())
     }
 }
 
@@ -178,5 +180,151 @@ public class CloudSyncPlugin: CAPPlugin, CAPBridgedPlugin {
             }
             call.resolve(["files": files, "pending": inArrivo])
         }
+    }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Siri e Comandi rapidi
+// Le azioni non toccano direttamente i dati (vivono nella webview): le ricariche dettate finiscono in
+// una coda che la webapp registra appena è attiva; il riepilogo del rimborso lo prepara la webapp a
+// ogni aggiornamento e Siri lo legge. Tutto in questo file per lo stesso motivo del plugin iCloud.
+enum CodaSiri {
+    static let chiave = "rt_siri_coda"
+    static let chiaveRiepilogo = "rt_siri_riepilogo"
+    static let notifica = Notification.Name("RangerSiriCoda")
+    private static let lock = NSLock()
+
+    static func aggiungi(_ voce: [String: Any]) {
+        lock.lock(); defer { lock.unlock() }
+        var coda = UserDefaults.standard.array(forKey: chiave) as? [[String: Any]] ?? []
+        coda.append(voce)
+        UserDefaults.standard.set(coda, forKey: chiave)
+    }
+    static func leggi() -> [[String: Any]] {
+        lock.lock(); defer { lock.unlock() }
+        return UserDefaults.standard.array(forKey: chiave) as? [[String: Any]] ?? []
+    }
+    static func rimuovi(_ ids: [String]) {
+        lock.lock(); defer { lock.unlock() }
+        let coda = UserDefaults.standard.array(forKey: chiave) as? [[String: Any]] ?? []
+        UserDefaults.standard.set(coda.filter { !ids.contains(($0["id"] as? String) ?? "") }, forKey: chiave)
+    }
+}
+
+@objc(SiriPlugin)
+public class SiriPlugin: CAPPlugin, CAPBridgedPlugin {
+    public let identifier = "SiriPlugin"
+    public let jsName = "Siri"
+    public let pluginMethods: [CAPPluginMethod] = [
+        CAPPluginMethod(name: "leggiCoda", returnType: CAPPluginReturnPromise),
+        CAPPluginMethod(name: "conferma", returnType: CAPPluginReturnPromise),
+        CAPPluginMethod(name: "pubblica", returnType: CAPPluginReturnPromise)
+    ]
+
+    override public func load() {
+        // ricarica dettata a Siri mentre l'app è aperta: la webapp la registra subito
+        NotificationCenter.default.addObserver(self, selector: #selector(nuovaVoce), name: CodaSiri.notifica, object: nil)
+    }
+    @objc private func nuovaVoce() { notifyListeners("coda", data: [:]) }
+
+    @objc func leggiCoda(_ call: CAPPluginCall) { call.resolve(["voci": CodaSiri.leggi()]) }
+
+    @objc func conferma(_ call: CAPPluginCall) {
+        CodaSiri.rimuovi(call.getArray("ids", String.self) ?? [])
+        call.resolve()
+    }
+
+    @objc func pubblica(_ call: CAPPluginCall) {
+        guard let testo = call.getString("testo") else { call.reject("testo mancante"); return }
+        UserDefaults.standard.set(["testo": testo, "ts": Date().timeIntervalSince1970], forKey: CodaSiri.chiaveRiepilogo)
+        call.resolve()
+    }
+}
+
+@available(iOS 16.0, *)
+enum TipoRicarica: String, AppEnum {
+    case casa, lavoro
+    static let typeDisplayRepresentation: TypeDisplayRepresentation = "Tipo di ricarica"
+    static let caseDisplayRepresentations: [TipoRicarica: DisplayRepresentation] = [
+        .casa: "casa",
+        .lavoro: "lavoro"
+    ]
+}
+
+@available(iOS 16.0, *)
+struct AggiungiRicaricaIntent: AppIntent {
+    static let title: LocalizedStringResource = "Aggiungi ricarica"
+    static let openAppWhenRun = false
+
+    @Parameter(title: "Dove", requestValueDialog: "Casa o lavoro?")
+    var tipo: TipoRicarica
+
+    @Parameter(title: "kWh", requestValueDialog: "Quanti kWh?")
+    var kwh: Double
+
+    @Parameter(title: "Data")
+    var data: Date?
+
+    static var parameterSummary: some ParameterSummary {
+        Summary("Ricarica di \(\.$kwh) kWh a \(\.$tipo)") { \.$data }
+    }
+
+    func perform() async throws -> some IntentResult & ProvidesDialog {
+        guard kwh > 0, kwh < 300 else {
+            return .result(dialog: "Non ho capito i kWh, riprova dicendo solo il numero.")
+        }
+        let giorno = min(data ?? Date(), Date())
+        let f = DateFormatter()
+        f.calendar = Calendar(identifier: .gregorian)
+        f.locale = Locale(identifier: "en_US_POSIX")
+        f.timeZone = .current
+        f.dateFormat = "yyyy-MM-dd"
+        CodaSiri.aggiungi(["id": UUID().uuidString, "data": f.string(from: giorno), "kwh": kwh,
+                           "tipo": tipo.rawValue, "ts": Date().timeIntervalSince1970 * 1000])
+        await MainActor.run { NotificationCenter.default.post(name: CodaSiri.notifica, object: nil) }
+        let valore = String(format: "%.1f", kwh).replacingOccurrences(of: ".", with: ",")
+        let dove = tipo == .casa ? "a casa" : "al lavoro"
+        let oggi = Calendar.current.isDateInToday(giorno) ? "" : " del \(DateFormatter.localizedString(from: giorno, dateStyle: .short, timeStyle: .none))"
+        return .result(dialog: "Fatto: ricarica \(dove)\(oggi) di \(valore) kWh salvata in RangerTrack.")
+    }
+}
+
+@available(iOS 16.0, *)
+struct RimborsoIntent: AppIntent {
+    static let title: LocalizedStringResource = "Situazione rimborso"
+    static let openAppWhenRun = false
+
+    func perform() async throws -> some IntentResult & ProvidesDialog {
+        let r = UserDefaults.standard.dictionary(forKey: CodaSiri.chiaveRiepilogo)
+        guard let testo = r?["testo"] as? String else {
+            return .result(dialog: "Apri RangerTrack una volta, così preparo il riepilogo del rimborso.")
+        }
+        var extra = ""
+        if let ts = r?["ts"] as? Double, Date().timeIntervalSince1970 - ts > 86400 {
+            let quando = Date(timeIntervalSince1970: ts)
+            extra += " Dati aggiornati al \(DateFormatter.localizedString(from: quando, dateStyle: .short, timeStyle: .none))."
+        }
+        let inCoda = CodaSiri.leggi().count
+        if inCoda > 0 {
+            extra += inCoda == 1 ? " C'è una ricarica dettata a Siri non ancora conteggiata: apri l'app per aggiornare."
+                                 : " Ci sono \(inCoda) ricariche dettate a Siri non ancora conteggiate: apri l'app per aggiornare."
+        }
+        return .result(dialog: "\(testo)\(extra)")
+    }
+}
+
+@available(iOS 16.0, *)
+struct RangerScorciatoie: AppShortcutsProvider {
+    static var appShortcuts: [AppShortcut] {
+        AppShortcut(intent: AggiungiRicaricaIntent(), phrases: [
+            "Aggiungi ricarica in \(.applicationName)",
+            "Ricarica \(\.$tipo) in \(.applicationName)",
+            "Nuova ricarica \(.applicationName)"
+        ])
+        AppShortcut(intent: RimborsoIntent(), phrases: [
+            "Rimborso \(.applicationName)",
+            "Situazione rimborso in \(.applicationName)",
+            "Quanto mi devono in \(.applicationName)"
+        ])
     }
 }

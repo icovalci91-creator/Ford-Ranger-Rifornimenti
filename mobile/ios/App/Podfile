@@ -50,6 +50,11 @@ post_install do |installer|
       t.build_configurations.each do |c|
         cambiato |= aggiungi.call(c, 'OTHER_SWIFT_FLAGS', ['-Xcc', '-Wno-deprecated-declarations'])
         cambiato |= aggiungi.call(c, 'OTHER_CFLAGS', ['-Wno-deprecated-declarations'])
+        # Siri / Comandi rapidi (App Intents) richiedono almeno iOS 16: alzo il minimo solo se è più basso
+        if c.build_settings['IPHONEOS_DEPLOYMENT_TARGET'].to_s.to_f < 16.0
+          c.build_settings['IPHONEOS_DEPLOYMENT_TARGET'] = '16.0'
+          cambiato = true
+        end
       end
     end
     proj.save if cambiato
