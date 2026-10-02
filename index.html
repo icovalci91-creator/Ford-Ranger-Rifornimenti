@@ -8,7 +8,7 @@
 <meta name="apple-mobile-web-app-title" content="RangerTrack"/>
 <meta name="theme-color" content="#0f0f0f"/>
 <meta http-equiv="Cache-Control" content="no-cache,no-store,must-revalidate"/>
-<title>RangerTrack v2026.10.02-3</title>
+<title>RangerTrack v2026.10.02-4</title>
 <link rel="apple-touch-icon" href="/apple-touch-icon.png"/>
 <link rel="preconnect" href="https://fonts.googleapis.com"/>
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@400;700;900&family=Barlow:wght@400;500&display=swap"/>
@@ -22,6 +22,21 @@
 }
 html,body{height:100%;background:var(--bg);color:var(--tx);font-family:'Barlow',sans-serif;-webkit-font-smoothing:antialiased;overscroll-behavior:none}
 #app{display:flex;flex-direction:column;height:100dvh;max-width:700px;margin:0 auto}
+/* due colonne su iPad / schermi larghi; sul telefono resta tutto in una colonna, come prima */
+.cols{display:flex;flex-direction:column}
+.cols.dx-prima>.col:last-child{order:-1}
+.col{min-width:0}
+.solo-ipad{display:none}
+@media (min-width:760px){
+  #app{max-width:1280px}
+  .cols{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:20px;align-items:start}
+  .cols.dx-prima>.col:last-child{order:0}
+  .cols.sx-larga{grid-template-columns:minmax(0,1.15fr) minmax(0,.85fr)}
+  .solo-ipad{display:block}
+  .col>.primo-ipad{margin-top:0!important}
+  .mov{align-items:center!important;justify-content:center}
+  .mo{max-width:640px!important;border-radius:14px!important;max-height:88vh!important}
+}
 
 /* HEADER */
 .hdr{padding:60px 16px 12px;background:var(--bg2);border-bottom:2px solid var(--o);flex-shrink:0;display:grid;grid-template-columns:1fr auto 1fr;align-items:center}
@@ -225,7 +240,7 @@ hr{border:none;border-top:1px solid var(--bd);margin:14px 0}
     <div class="hdr-btns">
       <div class="pill" id="ai-pill" onclick="openMo('mo-gemini')" title="AI Gemini">🤖</div>
       <div class="pill" onclick="openMo('mo-luoghi')" title="Luoghi ricarica">📍</div>
-      <div class="pill" onclick="openMo('mo-backup')" title="Backup">💾</div>
+      <div class="pill" id="pill-bk" onclick="openMo('mo-backup')" title="Backup e sincronizzazione" style="position:relative">💾</div>
     </div>
   </div>
   <div class="tabs">
@@ -382,11 +397,11 @@ hr{border:none;border-top:1px solid var(--bd);margin:14px 0}
 </div>
 
 <script>
-const APP_VER='2026.10.02-3';
+const APP_VER='2026.10.02-4';
 // ── STORAGE ──────────────────────────────────────────────────────────────────
 const LS={
   get:(k,d)=>{try{const v=localStorage.getItem(k);return v!==null?JSON.parse(v):d}catch{return d}},
-  set:(k,v)=>{try{localStorage.setItem(k,JSON.stringify(v))}catch{}}
+  set:(k,v)=>{try{localStorage.setItem(k,JSON.stringify(v))}catch{};if(window.__syncTouch)window.__syncTouch(k)}
 };
 
 // ── STATE ────────────────────────────────────────────────────────────────────
@@ -414,6 +429,7 @@ let sOpen={}, sDetail={};
   ricAz=pulito(ricAz,fixRic);
   ricCasaL=pulito(ricCasaL,fixRic);
   hist=pulito(hist,h=>{if(h.data)h.data=isoData(h.data);return h});
+  const vistiH=new Set();hist.forEach(h=>{if(h.id===undefined||vistiH.has(h.id)){h.id=Date.now()*1000+Math.floor(Math.random()*1e6);cambiato=true}vistiH.add(h.id)});
   bimArch=pulito(bimArch,b=>{b.ricariche=arr(b.ricariche).map(fixRic);if(!b.key&&b.label)b.key=b.label;return b});
   // ID ricariche univoci (le versioni vecchie usavano solo l'ora: due ricariche potevano avere lo stesso ID
   // ed essere eliminate insieme)
@@ -448,7 +464,7 @@ function saveAll(){LS.set('rt_hist',hist);LS.set('rt_ricaz',ricAz);LS.set('rt_bo
 let registro=LS.get('rt_log',[]);if(!Array.isArray(registro))registro=[];
 let documenti=LS.get('rt_docs',[]);if(!Array.isArray(documenti))documenti=[];
 function logEv(tipo,testo,bim){
-  registro.unshift({ts:new Date().toISOString(),tipo,testo,bim:bim||null});
+  registro.unshift({id:Date.now().toString(36)+Math.random().toString(36).slice(2,6),ts:new Date().toISOString(),tipo,testo,bim:bim||null});
   if(registro.length>500)registro.length=500;
   LS.set('rt_log',registro);
 }
@@ -758,6 +774,8 @@ function sw(t){
 }
 
 // ── RENDER ───────────────────────────────────────────────────────────────────
+// layout a due colonne (iPad); sul telefono le colonne si impilano
+function col2(sx,dx,cls){return`<div class="cols ${cls||''}"><div class="col">${sx}</div><div class="col">${dx}</div></div>`}
 function render(){
   const el=document.getElementById('main');
   if(!el)return;
@@ -788,8 +806,7 @@ function rCiclo(){
   ];
   const cur=steps.findIndex(s=>!s.done);
   const all=cur===-1;
-  let h=rRicaricheCiclo();
-  h+=`<div class="wiz"><div class="dots">`;
+  let h=`<div class="wiz"><div class="dots">`;
   steps.forEach((s,i)=>h+=`<div class="dot${s.done?' dn':i===cur?' ac':''}"></div>`);
   h+=`</div><div class="wlbl">${all?'Pronto!':'Passo '+(cur+1)+' di 4'}</div>`;
   if(cycle.cruscotto||cycle.scontrino||cycle.ricCasa||cycle.ricLav)
@@ -804,7 +821,18 @@ function rCiclo(){
     h+='</div>';
   });
   if(all)h+=rFinalSum();
-  return h;
+  return col2(h,rRicaricheCiclo()+rUltimiCicli(),'dx-prima sx-larga');
+}
+// solo iPad: gli ultimi rifornimenti accanto al ciclo in corso
+function rUltimiCicli(){
+  if(!hist.length)return'';
+  return`<div class="solo-ipad"><div class="seclbl" style="margin:4px 0 8px">⛽ Ultimi rifornimenti</div>
+    ${hist.slice(0,6).map(hh=>{const tot=n(hh.costoBenz)+n(hh.costoEC)+n(hh.rimborso);
+      return`<div style="display:flex;justify-content:space-between;align-items:center;gap:8px;padding:9px 12px;background:var(--bg2);border:1px solid var(--bd);border-radius:6px;margin-bottom:6px;font-size:12px">
+        <span>${fd(hh.data)}${hh.staz?' · <span style="color:var(--mu)">'+es(hh.staz)+'</span>':''}</span>
+        <span style="color:var(--mu)">⛽ € ${n(hh.costoBenz).toFixed(2)}</span>
+        <strong style="font-family:'Barlow Condensed',sans-serif;font-size:16px">€ ${tot.toFixed(2)}</strong></div>`}).join('')}
+    <button class="btn bgh bsm" onclick="sw('storico')">Tutto lo storico ›</button></div>`;
 }
 
 // riquadro in cima al Ciclo: ricariche accumulate dall'ultimo rifornimento, caricabili in qualsiasi momento
@@ -1045,7 +1073,7 @@ function rRimborso(){
   h+=`<div style="background:var(--bg2);border:1px solid var(--g);border-radius:8px;padding:12px 14px;margin-bottom:10px">
     <div style="font-size:9px;letter-spacing:3px;text-transform:uppercase;color:var(--g)">Bimestre in corso</div>
     <div style="font-family:'Barlow Condensed',sans-serif;font-size:20px;font-weight:900">${bimLbl(curK)}</div>
-    <div style="font-size:10px;color:var(--mu)">Si apre e si chiude da solo · i bimestri precedenti sono più in basso</div>
+    <div style="font-size:10px;color:var(--mu)">Si apre e si chiude da solo · i bimestri precedenti sono nell'elenco «Bimestri precedenti»</div>
   </div>`;
 
   // Da fare
@@ -1109,9 +1137,8 @@ function rRimborso(){
     h+=`<button class="btn bgh" style="margin-top:4px" onclick="svuotaBim()">🗑️ Svuota bimestre in corso</button>`;
   }
 
-  // Tutti i bimestri chiusi, sempre visibili
-  h+=rListaBimestri(curK);
-  return h;
+  // Tutti i bimestri chiusi, sempre visibili (su iPad nella colonna di destra)
+  return col2(h,rListaBimestri(curK));
 }
 
 // ricariche raggruppate per mese; key = bimestre archiviato (per eliminare da lì) o null = bimestre in corso
@@ -1538,7 +1565,7 @@ function rDocumenti(){
       </div>`;
     }).join('');
 }
-const ICONE_LOG={ricarica:'🔌',chiuso:'📦',bolletta:'🧾',coeff:'⚡',documento:'📄',condiviso:'📤',inviato:'📤',pagato:'✅',annulla:'↩️',elimina:'🗑️',ciclo:'⛽',backup:'💾'};
+const ICONE_LOG={ricarica:'🔌',chiuso:'📦',bolletta:'🧾',coeff:'⚡',documento:'📄',condiviso:'📤',inviato:'📤',pagato:'✅',annulla:'↩️',elimina:'🗑️',ciclo:'⛽',backup:'💾',sync:'☁️'};
 function rRegistro(){
   if(!registro.length)return`<div class="empty">Il registro è vuoto.<br/>Da ora ogni operazione (ricariche, bollette,<br/>report, invii, pagamenti) viene annotata qui.</div>`;
   let h=`<div class="info">Tutte le operazioni, dalla più recente. Le ultime 500 restano salvate (e nel backup).</div>`,giorno='';
@@ -1571,6 +1598,7 @@ function rStoricoCicli(){
   </div>
   ${rGrafici()}
   <button class="btn bo" style="margin-bottom:14px" onclick="openMo('mo-nrif')">➕ Aggiungi rifornimento mancante</button>`;
+  const riepilogo=h;h='';
 
   hist.forEach(hh=>{
     const isOpen=!!sOpen[hh.id],isDet=!!sDetail[hh.id];
@@ -1637,7 +1665,7 @@ function rStoricoCicli(){
       </div>`:''}
     </div>`;
   });
-  return h;
+  return col2(riepilogo,h);
 }
 
 function toggleOpen(id){sOpen[id]=!sOpen[id];if(sOpen[id])sDetail[id]=false;render()}
@@ -1704,7 +1732,7 @@ function saveNRif(){
 // ══════════════════════════════════════════════════════════════════════════════
 function rBolletta(){
   const arch=LS.get('rt_boll_arch',[]);
-  return`
+  return`<div class="cols"><div class="col">
   <div style="font-family:'Barlow Condensed',sans-serif;font-size:11px;font-weight:700;letter-spacing:3px;text-transform:uppercase;color:var(--o);margin-bottom:10px">🏢 Bolletta Aziendale</div>
   <div class="card">
     <div class="ctitle" style="font-size:12px">📄 Carica bolletta aziendale</div>
@@ -1729,8 +1757,8 @@ function rBolletta(){
     <button class="btn bg" onclick="saveBollAz()">💾 Salva bolletta aziendale</button>
   </div>
   ${rStatoCoeff()}
-
-  <div style="font-family:'Barlow Condensed',sans-serif;font-size:11px;font-weight:700;letter-spacing:3px;text-transform:uppercase;color:var(--b);margin:18px 0 10px">🏠 Bolletta Casa</div>
+  </div><div class="col">
+  <div class="primo-ipad" style="font-family:'Barlow Condensed',sans-serif;font-size:11px;font-weight:700;letter-spacing:3px;text-transform:uppercase;color:var(--b);margin:18px 0 10px">🏠 Bolletta Casa</div>
   <div class="card" style="border-color:rgba(59,130,246,.3)">
     <div class="ctitle" style="font-size:12px">📄 Carica bolletta di casa</div>
     <p class="info">Stessa logica dell'aziendale: la bolletta si aggancia al suo bimestre e ricalcola il costo casa dei cicli di quel bimestre. Finché manca, i cicli usano l'ultimo €/kWh noto come stima.</p>
@@ -1754,7 +1782,7 @@ function rBolletta(){
     <div><div style="font-size:11px;font-weight:600">${b.tipo==='casa'?'🏠':'🏢'} ${es(b.periodo||'—')}${b.bimestre?` <span style="color:var(--mu);font-weight:400">· ${es(bimLbl(b.bimestre))}</span>`:''}</div>
     <div style="font-size:10px;color:var(--mu)">€ ${n(b.coeff).toFixed(b.tipo==='casa'?4:5)}/kWh</div></div>
     <button class="delbtn" onclick="const a=LS.get('rt_boll_arch',[]);a.splice(${i},1);LS.set('rt_boll_arch',a);render()">✕</button>
-  </div>`).join('')}`:''}`;
+  </div>`).join('')}`:''}</div></div>`;
 }
 
 function saveBollAz(){
@@ -2420,6 +2448,211 @@ function delDoc(id){
 }
 
 // ══════════════════════════════════════════════════════════════════════════════
+// SINCRONIZZAZIONE iCLOUD (iPhone ↔ iPad, stesso Apple ID)
+// ══════════════════════════════════════════════════════════════════════════════
+// Ogni dispositivo scrive SOLO il proprio file "rt-<id>.json" nel suo iCloud (plugin nativo CloudSync)
+// e legge quelli degli altri. Unione per singolo CAMPO di ogni voce (ricarica, ciclo, bimestre,
+// documento, impostazione): vince il valore modificato più di recente; le eliminazioni si propagano
+// (lapidi). Modifiche su campi diversi della stessa voce, fatte offline su due dispositivi, si sommano.
+const SYNC_COLL={rt_hist:'id',rt_ricaz:'id',rt_riccasa:'id',rt_bimarch:'key',rt_docs:'id'};
+const SYNC_SET=['rt_kwh','rt_kwh_from','rt_kwh_casa','rt_kwh_casa_from','rt_coeff_bim','rt_boll_bim','rt_coeff_casa_bim','rt_boll_casa_bim',
+  'rt_boll','rt_boll_casa','rt_boll_arch','rt_luo_casa','rt_luo_lav','rt_cycle','rt_gemini_key'];
+const SYNC_KEYS=new Set([...Object.keys(SYNC_COLL),...SYNC_SET,'rt_log']);
+const SYNC_TOMB_GIORNI=120;
+let syncApplico=false,syncInCorso=false,syncAncora=false,syncTimer=null,syncStato={s:'off',msg:'',ts:0};
+
+function syncPlugin(){const c=window.Capacitor;return c&&c.isNativePlatform&&c.isNativePlatform()&&c.Plugins&&c.Plugins.CloudSync||null}
+function syncHash(v){const s=JSON.stringify(v===undefined?null:v);let h=2166136261;for(let i=0;i<s.length;i++){h^=s.charCodeAt(i);h=Math.imul(h,16777619)}return(h>>>0).toString(36)}
+function syncDispositivo(){
+  let d=LS.get('rt_sync_dev',null);
+  if(!d||!d.id){
+    const ua=navigator.userAgent||'',ipad=/iPad/.test(ua)||(/Macintosh/.test(ua)&&navigator.maxTouchPoints>1);
+    d={id:Math.random().toString(36).slice(2,10),nome:ipad?'iPad':/iPhone/.test(ua)?'iPhone':'Dispositivo'};
+    localStorage.setItem('rt_sync_dev',JSON.stringify(d));
+  }
+  return d;
+}
+function syncFileMio(){return'rt-'+syncDispositivo().id+'.json'}
+// ogni modifica dei dati sincronizzati programma una sincronizzazione (dopo 2,5 s di calma)
+window.__syncTouch=k=>{if(syncApplico||!SYNC_KEYS.has(k)||!syncPlugin())return;clearTimeout(syncTimer);syncTimer=setTimeout(()=>syncOra(),2500)};
+function idLog(e){return e.id!==undefined?String(e.id):(e.ts+'|'+e.testo)}
+
+// rileva le modifiche locali rispetto all'ultima unione (base) e le marca con l'ora attuale
+function syncRileva(now,st){
+  for(const K in SYNC_COLL){
+    const idf=SYNC_COLL[K],base=st.base[K]=st.base[K]||{},meta=st.meta[K]=st.meta[K]||{},tomb=st.tomb[K]=st.tomb[K]||{};
+    const visti=new Set();
+    (LS.get(K,[])||[]).forEach(r=>{
+      if(!r||typeof r!=='object'||r[idf]===undefined||r[idf]===null)return;
+      const id=String(r[idf]);visti.add(id);
+      const b=base[id]||{},m=meta[id]=meta[id]||{};let mod=false;
+      for(const f in r){const h=syncHash(r[f]);if(b[f]!==h){m[f]=now;mod=true}}
+      for(const f in b)if(!(f in r)){m[f]=now;mod=true} // campo rimosso
+      if(mod&&tomb[id])delete tomb[id]; // voce ricreata dopo un'eliminazione
+    });
+    for(const id in base)if(!visti.has(id)){tomb[id]=now;delete meta[id]} // eliminata qui
+  }
+  const bs=st.base.set=st.base.set||{},ms=st.meta.set=st.meta.set||{};
+  SYNC_SET.forEach(k=>{const h=syncHash(LS.get(k,null));if(bs[k]!==h)ms[k]=now});
+}
+function syncCostruisciMio(now,st){
+  const dev=syncDispositivo(),c={},s={};
+  for(const K in SYNC_COLL){
+    const idf=SYNC_COLL[K],meta=st.meta[K]||{},out=c[K]={};
+    (LS.get(K,[])||[]).forEach(r=>{
+      if(!r||typeof r!=='object'||r[idf]===undefined||r[idf]===null)return;
+      const id=String(r[idf]),m=meta[id]||{},rec=out[id]={};
+      const campi=new Set([...Object.keys(r),...Object.keys(m)]);
+      campi.forEach(f=>{rec[f]=(f in r)?[r[f],m[f]||0]:[null,m[f]||0,1]});
+    });
+  }
+  SYNC_SET.forEach(k=>{const v=localStorage.getItem(k);s[k]=v===null?[null,st.meta.set[k]||0,1]:[LS.get(k,null),st.meta.set[k]||0]});
+  return{v:1,dev:dev.id,nome:dev.nome,ts:now,app:APP_VER,c,s,t:st.tomb,log:(LS.get('rt_log',[])||[]).slice(0,500)};
+}
+// unione di tutti i file: per ogni campo vince l'ora più recente (a pari ora decide l'id dispositivo)
+function syncUnisci(files){
+  const out={c:{},s:{},t:{},log:[]};
+  const meglio=(a,b,devA,devB)=>!a||b[1]>a.x[1]||(b[1]===a.x[1]&&devB>devA);
+  for(const K in SYNC_COLL){
+    const best={},tomb={};
+    files.forEach(F=>{
+      const tk=(F.t&&F.t[K])||{};for(const id in tk)if(!(tomb[id]>=tk[id]))tomb[id]=tk[id];
+      const ck=(F.c&&F.c[K])||{};
+      for(const id in ck){const rec=best[id]=best[id]||{};for(const f in ck[id]){const x=ck[id][f];if(!Array.isArray(x))continue;if(meglio(rec[f],x,rec[f]&&rec[f].dev,F.dev))rec[f]={x,dev:F.dev}}}
+    });
+    const res={};
+    for(const id in best){
+      const rec=best[id];let maxM=0;for(const f in rec)maxM=Math.max(maxM,rec[f].x[1]);
+      if(tomb[id]!==undefined&&tomb[id]>=maxM)continue; // eliminata dopo l'ultima modifica
+      const o={},m={};for(const f in rec){m[f]=rec[f].x[1];if(!rec[f].x[2])o[f]=rec[f].x[0]}
+      res[id]={o,m};
+    }
+    out.c[K]=res;out.t[K]=tomb;
+  }
+  SYNC_SET.forEach(k=>{let b=null,bd='';files.forEach(F=>{const x=F.s&&F.s[k];if(Array.isArray(x)&&(!b||x[1]>b[1]||(x[1]===b[1]&&F.dev>bd))){b=x;bd=F.dev}});if(b)out.s[k]=b});
+  const lg=new Map();files.forEach(F=>(F.log||[]).forEach(e=>{if(e&&e.ts)lg.set(idLog(e),e)}));
+  out.log=[...lg.values()].sort((a,b)=>a.ts<b.ts?1:-1).slice(0,500);
+  return out;
+}
+const SYNC_ORDINE={rt_hist:(a,b)=>String(b.data)>String(a.data)?1:-1,rt_ricaz:(a,b)=>String(b.data)>String(a.data)?1:-1,
+  rt_riccasa:(a,b)=>String(b.data)>String(a.data)?1:-1,rt_bimarch:(a,b)=>a.key<b.key?1:-1,rt_docs:(a,b)=>String(b.creato)>String(a.creato)?1:-1};
+// scrive il risultato dell'unione nei dati locali; ritorna quante voci sono cambiate
+function syncApplica(U,st){
+  let cambi=0;syncApplico=true;
+  try{
+    for(const K in SYNC_COLL){
+      const prima=LS.get(K,[])||[],idf=SYNC_COLL[K];
+      const arr=Object.values(U.c[K]).map(x=>x.o).sort(SYNC_ORDINE[K]);
+      const hp=new Map(prima.filter(r=>r&&r[idf]!==undefined).map(r=>[String(r[idf]),syncHash(r)]));
+      arr.forEach(r=>{if(hp.get(String(r[idf]))!==syncHash(r))cambi++});cambi+=Math.max(0,prima.length-arr.length);
+      LS.set(K,arr);
+      st.base[K]={};st.meta[K]={};
+      for(const id in U.c[K]){const{o,m}=U.c[K][id];const b=st.base[K][id]={};for(const f in o)b[f]=syncHash(o[f]);st.meta[K][id]=m}
+      const lim=Date.now()-SYNC_TOMB_GIORNI*86400000;st.tomb[K]={};for(const id in U.t[K])if(U.t[K][id]>lim)st.tomb[K][id]=U.t[K][id];
+    }
+    SYNC_SET.forEach(k=>{
+      const x=U.s[k];if(!x)return;
+      const prima=localStorage.getItem(k);
+      if(x[2]){if(prima!==null){localStorage.removeItem(k);cambi++}}
+      else if(syncHash(LS.get(k,null))!==syncHash(x[0])){LS.set(k,x[0]);cambi++}
+      st.base.set[k]=syncHash(LS.get(k,null));st.meta.set[k]=x[1];
+    });
+    const lp=LS.get('rt_log',[])||[];
+    if(U.log.length!==lp.length||(U.log[0]&&lp[0]&&idLog(U.log[0])!==idLog(lp[0])))LS.set('rt_log',U.log);
+  }finally{syncApplico=false}
+  return cambi;
+}
+// ricarica in memoria i dati dopo un'unione
+function ricaricaStato(){
+  hist=LS.get('rt_hist',[]);ricAz=LS.get('rt_ricaz',[]);ricCasaL=LS.get('rt_riccasa',[]);bimArch=LS.get('rt_bimarch',[]);
+  documenti=LS.get('rt_docs',[]);registro=LS.get('rt_log',[]);
+  costoKwh=LS.get('rt_kwh','');geminiKey=LS.get('rt_gemini_key','');luoCasa=LS.get('rt_luo_casa','');luoLav=LS.get('rt_luo_lav','');
+  bollRef=LS.get('rt_boll',null);cycle=LS.get('rt_cycle',{cruscotto:null,scontrino:null,ricCasa:null,ricLav:null});
+}
+// primo collegamento di questo dispositivo: per le voci che esistono già nel cloud vince il cloud
+// (es. l'archivio precaricato di un iPad nuovo non deve sovrascrivere i dati veri del telefono)
+function syncPrimoIngresso(altri,st){
+  if(!altri.length)return;
+  const U=syncUnisci(altri);
+  for(const K in SYNC_COLL){
+    const idf=SYNC_COLL[K],base=st.base[K]=st.base[K]||{},meta=st.meta[K]=st.meta[K]||{};
+    (LS.get(K,[])||[]).forEach(r=>{
+      if(!r||r[idf]===undefined)return;const id=String(r[idf]);
+      if(!(id in U.c[K])&&!(id in U.t[K]))return; // solo qui: verrà aggiunta al cloud
+      const b=base[id]={},m=meta[id]={};for(const f in r){b[f]=syncHash(r[f]);m[f]=0}
+    });
+  }
+  st.base.set=st.base.set||{};st.meta.set=st.meta.set||{};
+  SYNC_SET.forEach(k=>{if(U.s[k]){st.base.set[k]=syncHash(LS.get(k,null));st.meta.set[k]=0}});
+}
+function syncSetStato(s,msg){syncStato={s,msg:msg||'',ts:Date.now()};aggiornaPillSync();if(document.getElementById('mo-backup')?.style.display==='flex')fillBkSum()}
+function aggiornaPillSync(){
+  const p=document.getElementById('pill-bk');if(!p)return;
+  const col={ok:'var(--g)',sync:'var(--o)',err:'var(--r)'}[syncStato.s];
+  p.innerHTML='💾'+(col?`<span style="position:absolute;top:2px;right:2px;width:8px;height:8px;border-radius:50%;background:${col};border:1.5px solid var(--bg2)"></span>`:'');
+}
+async function syncOra(manuale){
+  const P=syncPlugin();
+  if(!P){if(manuale)showToast('La sincronizzazione funziona solo nell\'app iPhone/iPad',false,true);return}
+  if(syncInCorso){syncAncora=true;return}
+  syncInCorso=true;syncSetStato('sync');
+  try{
+    const st0=await P.status();
+    if(!st0.available){syncSetStato('off',st0.reason==='account'?'Accedi a iCloud nelle Impostazioni di iOS (iCloud Drive attivo)':'Attiva la capability iCloud nell\'app (vedi guida)');if(manuale)showToast('iCloud non disponibile: '+syncStato.msg,false,true);return}
+    const now=Date.now(),mio=syncFileMio();
+    const letti=await P.readAll();
+    const altri=(letti.files||[]).filter(f=>f.name!==mio).map(f=>{try{return JSON.parse(f.data)}catch{return null}}).filter(F=>F&&F.v===1&&F.c);
+    const st={base:LS.get('rt_sync_base',null),meta:LS.get('rt_sync_meta',{}),tomb:LS.get('rt_sync_tomb',{})};
+    if(!st.base){st.base={};syncPrimoIngresso(altri,st)}
+    syncRileva(now,st);
+    const fileMio=syncCostruisciMio(now,st);
+    const U=syncUnisci([fileMio,...altri]);
+    const cambi=syncApplica(U,st);
+    // pubblico lo stato unito: gli altri dispositivi ricevono subito anche ciò che ho appena ricevuto
+    await P.writeOwn({name:mio,data:JSON.stringify(syncCostruisciMio(now,st))});
+    LS.set('rt_sync_base',st.base);LS.set('rt_sync_meta',st.meta);LS.set('rt_sync_tomb',st.tomb);
+    LS.set('rt_sync_last',now);
+    LS.set('rt_sync_altri',altri.map(F=>({nome:F.nome,dev:F.dev,ts:F.ts,app:F.app})));
+    if(cambi){
+      ricaricaStato();
+      const da=altri.slice().sort((a,b)=>b.ts-a.ts)[0];
+      logEv('sync',`Sincronizzato con ${da?da.nome:'iCloud'}: ${plur(cambi,'voce aggiornata','voci aggiornate')}`);
+      renderSicuro();
+    }
+    syncSetStato('ok');
+    if(letti.pending)setTimeout(()=>syncOra(),6000); // file di altri dispositivi ancora in download
+    if(manuale)showToast(cambi?'☁️ Sincronizzato: '+plur(cambi,'voce aggiornata','voci aggiornate'):'☁️ Già tutto sincronizzato',true);
+  }catch(e){syncSetStato('err',e&&e.message||String(e));if(manuale)showToast('Errore sincronizzazione: '+syncStato.msg,false,true)}
+  finally{syncInCorso=false;if(syncAncora){syncAncora=false;setTimeout(()=>syncOra(),800)}}
+}
+// non ridisegno mentre stai scrivendo in un campo della pagina: aspetto che tu esca dal campo
+function renderSicuro(){
+  const a=document.activeElement,main=document.getElementById('main');
+  if(a&&main&&main.contains(a)&&/INPUT|TEXTAREA|SELECT/.test(a.tagName)){a.addEventListener('blur',()=>setTimeout(render,50),{once:true});return}
+  render();
+}
+function avviaSync(){
+  if(!syncPlugin())return;
+  aggiornaPillSync();
+  setTimeout(()=>syncOra(),1200);
+  document.addEventListener('visibilitychange',()=>{if(document.visibilityState==='visible')syncOra()});
+  setInterval(()=>{if(document.visibilityState==='visible')syncOra()},60000);
+}
+// riquadro sincronizzazione nel pannello Backup
+function rSyncBox(){
+  if(!syncPlugin())return`<div style="margin-top:10px;padding-top:10px;border-top:1px solid var(--bd);color:var(--mu)">☁️ Sincronizzazione iCloud: disponibile nell'app iPhone/iPad.</div>`;
+  const last=LS.get('rt_sync_last',0),altri=LS.get('rt_sync_altri',[])||[],dev=syncDispositivo();
+  const stato={ok:'<span style="color:var(--g)">attiva</span>',sync:'<span style="color:var(--o)">in corso…</span>',err:'<span style="color:var(--r)">errore</span>',off:'<span style="color:var(--mu)">non attiva</span>'}[syncStato.s];
+  const fa=t=>{const m=Math.round((Date.now()-t)/60000);return m<1?'adesso':m<60?m+' min fa':m<1440?Math.round(m/60)+' h fa':fdt(new Date(t).toISOString())};
+  return`<div style="margin-top:10px;padding-top:10px;border-top:1px solid var(--bd)">
+    <div>☁️ Sincronizzazione iCloud: <strong>${stato}</strong>${last?` · ultima ${fa(last)}`:''}</div>
+    ${syncStato.msg?`<div style="color:${syncStato.s==='err'?'var(--r)':'var(--o)'};font-size:11px">${es(syncStato.msg)}</div>`:''}
+    <div style="font-size:11px;color:var(--mu)">Questo dispositivo: ${es(dev.nome)}${altri.length?' · altri: '+altri.map(a=>es(a.nome)+' ('+fa(a.ts)+')').join(', '):' · nessun altro dispositivo ancora'}</div>
+    <button class="btn bgh bsm" style="margin-top:8px" onclick="syncOra(true)">🔄 Sincronizza ora</button>
+  </div>`;
+}
+
+// ══════════════════════════════════════════════════════════════════════════════
 // BACKUP
 // ══════════════════════════════════════════════════════════════════════════════
 function daysSinceBackup(){
@@ -2440,7 +2673,7 @@ function fillBkSum(){
     <div>⚡ €/kWh az.: <strong>${costoKwh||'—'}</strong></div>
     <div>🏠 €/kWh casa: <strong>${LS.get('rt_kwh_casa','')||'—'}</strong></div>
     <div style="margin-top:6px;color:${bkColor}">Ultimo backup: <strong>${bkTxt}</strong></div>
-    <div style="margin-top:6px;color:var(--mu);font-size:10px">Versione app: ${APP_VER}</div>`;
+    <div style="margin-top:6px;color:var(--mu);font-size:10px">Versione app: ${APP_VER}</div>${rSyncBox()}`;
 }
 async function expData(){
   const data={version:3,exportDate:new Date().toISOString(),
@@ -2557,7 +2790,8 @@ function attachEv(){
 // ══════════════════════════════════════════════════════════════════════════════
 
 // Preload bimestri storici se archivio vuoto (dati in preload_bimestri.json)
-(async function(){
+// (la sincronizzazione parte solo dopo: sul primo collegamento i dati veri nel cloud vincono sul precaricato)
+const preloadPronto=(async function(){
   const existing = LS.get('rt_bimarch', []);
   if(existing.length !== 0) return;
   try{
@@ -2585,6 +2819,7 @@ function attachEv(){
 
 sw('ciclo');
 updateAiPill();
+preloadPronto.finally(avviaSync);
 
 // iOS install hint
 const isIOS=/iphone|ipad|ipod/i.test(navigator.userAgent);

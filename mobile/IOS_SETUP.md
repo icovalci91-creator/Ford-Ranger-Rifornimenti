@@ -85,6 +85,35 @@ poi da Xcode: **Run** sul telefono collegato (o Archive → TestFlight).
 `NSPhotoLibraryAddUsageDescription`. **Senza questi iOS fa crashare l'app** appena si apre la
 fotocamera/rullino. Se aggiungi funzioni che usano altro hardware, servono le relative chiavi.
 
+## iPad e sincronizzazione iCloud (iPhone ↔ iPad)
+
+L'app è universale (iPhone + iPad, `TARGETED_DEVICE_FAMILY = 1,2`): su iPad l'interfaccia passa a due
+colonne. I dati si sincronizzano da soli tramite **iCloud**, con lo stesso Apple ID su entrambi.
+
+**Da fare una sola volta in Xcode** (senza questo passaggio l'app funziona normalmente, ma non sincronizza):
+
+1. Apri `ios/App/App.xcworkspace` → seleziona il target **App** → tab **Signing & Capabilities**.
+2. **+ Capability** → **iCloud**.
+3. Nella sezione iCloud spunta **iCloud Documents** (non serve CloudKit).
+4. In *Containers* premi **+** e aggiungi `iCloud.app.rangertrack.mobile` (oppure spunta quello proposto),
+   poi lascia che Xcode aggiorni il profilo (firma automatica).
+5. Product → Archive → TestFlight, e installa la stessa build su iPhone e iPad.
+
+Sui dispositivi: Impostazioni → [tuo nome] → iCloud → **iCloud Drive attivo**, stesso Apple ID.
+
+Come funziona:
+- ogni dispositivo scrive solo il proprio file `rt-<id>.json` nel contenitore iCloud dell'app e legge
+  quello degli altri, quindi non ci sono conflitti di scrittura;
+- l'unione avviene per singolo campo di ogni voce (ricarica, ciclo, bimestre, documento, impostazione):
+  vince la modifica più recente, le eliminazioni si propagano, il registro attività si somma;
+- la sincronizzazione parte all'apertura, quando l'app torna in primo piano, ogni minuto e poco dopo
+  ogni modifica. Lo stato è nel pannello 💾 (pallino verde = attiva) con il pulsante **Sincronizza ora**;
+- **primo collegamento** di un dispositivo nuovo (es. l'iPad): per le voci già presenti in iCloud vincono
+  i dati del cloud, così l'archivio precaricato dell'iPad non sovrascrive quelli veri del telefono.
+  Conviene aprire prima l'app sull'iPhone (che pubblica i dati), poi sull'iPad;
+- vengono sincronizzate anche le impostazioni, compresa la chiave Gemini (resta nel tuo iCloud privato);
+- la versione web (Safari/PWA) non sincronizza: vale solo per l'app nativa.
+
 ## Migrazione dati dalla web-app all'app nativa
 
 I dati NON si trasferiscono da soli: web (Safari/PWA) e app nativa hanno storage separati.
@@ -100,6 +129,6 @@ Procedura senza perdite né duplicati:
 
 ## Note
 
-- La chiave Gemini va inserita anche nell'app (pulsante 🤖) — è salvata in localStorage per dispositivo.
+- La chiave Gemini va inserita anche nell'app (pulsante 🤖); con iCloud attivo basta inserirla su un dispositivo.
 - I dati vivono in localStorage della WebView: fai ogni tanto un backup JSON dall'app (💾).
 - `www/` è generata da `build-www.mjs` e non è versionata; i sorgenti veri sono nella root del repo.

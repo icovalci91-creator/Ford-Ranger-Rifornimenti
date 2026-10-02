@@ -20,7 +20,8 @@ fi
 git checkout origin/main -- \
   index.html sw.js logo.png apple-touch-icon.png preload_bimestri.json \
   mobile/aggiorna-ios.sh mobile/build-www.mjs mobile/package.json mobile/IOS_SETUP.md \
-  mobile/ios/App/Podfile mobile/ios/App/App/Info.plist mobile/ios/App/App/AppDelegate.swift
+  mobile/ios/App/Podfile mobile/ios/App/App/Info.plist mobile/ios/App/App/AppDelegate.swift \
+  mobile/ios/App/App/Base.lproj/Main.storyboard
 
 cd mobile
 [ -d node_modules ] || npm install
@@ -43,6 +44,11 @@ if grep "IPHONEOS_DEPLOYMENT_TARGET" ios/App/Pods/Pods.xcodeproj/project.pbxproj
   echo "✗ Alcuni pod non sono a iOS 15.0:"; grep "IPHONEOS_DEPLOYMENT_TARGET" ios/App/Pods/Pods.xcodeproj/project.pbxproj | sort | uniq -c; ok=0
 else
   echo "✓ Pod a iOS 15.0"
+fi
+if grep -q "class CloudSyncPlugin" ios/App/App/AppDelegate.swift && grep -q 'customClass="RangerBridgeViewController"' ios/App/App/Base.lproj/Main.storyboard; then
+  echo "✓ Sincronizzazione iCloud inclusa (ricorda la capability iCloud in Xcode, una volta)"
+else
+  echo "✗ Plugin iCloud MANCANTE: manda una foto di questo messaggio"; ok=0
 fi
 echo "✓ Versione webapp: $(grep -o "APP_VER='[^']*'" www/index.html)"
 echo "==========================================="
