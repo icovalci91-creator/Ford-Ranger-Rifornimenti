@@ -8,7 +8,7 @@
 <meta name="apple-mobile-web-app-title" content="RangerTrack"/>
 <meta name="theme-color" content="#0f0f0f"/>
 <meta http-equiv="Cache-Control" content="no-cache,no-store,must-revalidate"/>
-<title>RangerTrack v2026.10.02-2</title>
+<title>RangerTrack v2026.10.02-3</title>
 <link rel="apple-touch-icon" href="/apple-touch-icon.png"/>
 <link rel="preconnect" href="https://fonts.googleapis.com"/>
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@400;700;900&family=Barlow:wght@400;500&display=swap"/>
@@ -382,7 +382,7 @@ hr{border:none;border-top:1px solid var(--bd);margin:14px 0}
 </div>
 
 <script>
-const APP_VER='2026.10.02-2';
+const APP_VER='2026.10.02-3';
 // ── STORAGE ──────────────────────────────────────────────────────────────────
 const LS={
   get:(k,d)=>{try{const v=localStorage.getItem(k);return v!==null?JSON.parse(v):d}catch{return d}},
@@ -1917,7 +1917,7 @@ async function geminiModels(){
   return GEM_FALLBACK;
 }
 async function callGemini(file,prompt,maxTok=400){
-  if(!geminiKey){showToast('⚠️ Imposta la chiave Gemini (🤖)',false,true);throw new Error('no key')}
+  if(!geminiKey){openMo('mo-gemini');showToast('⚠️ Serve la chiave Gemini: inseriscila qui (è separata tra web e app)',false,true);throw new Error('no key')}
   // accetta un singolo file oppure un elenco di file (più foto)
   const files=Array.isArray(file)?file:(file&&file.length!==undefined&&!file.name?Array.from(file):[file]);
   const imgParts=[];
@@ -2015,7 +2015,11 @@ async function importaRicariche(files,tipoDefault){
         const t=String(s.tipo||'').toLowerCase();
         letture.push({data:dataRicarica(s.data),kwh:r2(n(s.kwh)),tipo:t.includes('lav')?'lavoro':t.includes('cas')?'casa':(tipoDefault||'')});
       });
-    }catch(e){errori.push((lista.length>1?'foto '+(i+1)+': ':'')+e.message);if(/Chiave|no key/.test(e.message))i=lista.length}
+    }catch(e){
+      removeToast(toast);
+      if(e.message==='no key')return; // la finestra della chiave è già aperta
+      errori.push((lista.length>1?'foto '+(i+1)+': ':'')+e.message);if(/Chiave/.test(e.message))i=lista.length;
+    }
     removeToast(toast);
   }
   if(!letture.length){
