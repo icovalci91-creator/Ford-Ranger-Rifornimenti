@@ -46,6 +46,13 @@ post_install do |installer|
   end
   installer.aggregate_targets.map(&:user_project).uniq.each do |proj|
     cambiato = false
+    # anche a livello di progetto (dove lo mette "Update to recommended settings")
+    proj.build_configurations.each do |c|
+      if c.build_settings['ENABLE_USER_SCRIPT_SANDBOXING'] == 'YES'
+        c.build_settings['ENABLE_USER_SCRIPT_SANDBOXING'] = 'NO'
+        cambiato = true
+      end
+    end
     proj.native_targets.select { |t| t.name == 'App' }.each do |t|
       t.build_configurations.each do |c|
         cambiato |= aggiungi.call(c, 'OTHER_SWIFT_FLAGS', ['-Xcc', '-Wno-deprecated-declarations'])
