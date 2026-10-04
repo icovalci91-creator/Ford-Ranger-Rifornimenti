@@ -8,7 +8,7 @@
 <meta name="apple-mobile-web-app-title" content="RangerTrack"/>
 <meta name="theme-color" content="#0f0f0f"/>
 <meta http-equiv="Cache-Control" content="no-cache,no-store,must-revalidate"/>
-<title>RangerTrack v2026.10.02-5</title>
+<title>RangerTrack v2026.10.04-1</title>
 <link rel="apple-touch-icon" href="/apple-touch-icon.png"/>
 <link rel="preconnect" href="https://fonts.googleapis.com"/>
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@400;700;900&family=Barlow:wght@400;500&display=swap"/>
@@ -397,7 +397,7 @@ hr{border:none;border-top:1px solid var(--bd);margin:14px 0}
 </div>
 
 <script>
-const APP_VER='2026.10.02-5';
+const APP_VER='2026.10.04-1';
 // ── STORAGE ──────────────────────────────────────────────────────────────────
 const LS={
   get:(k,d)=>{try{const v=localStorage.getItem(k);return v!==null?JSON.parse(v):d}catch{return d}},
@@ -1204,6 +1204,7 @@ function rListaBimestri(curK){
     else if(s==='dainviare')az=zero?'':`<button class="btn bg bsm" onclick="apriInvio('${k}')">📤 Prepara e invia report</button>`;
     else if(s==='inviato')az=`${b.docInvio?`<button class="btn bgh bsm" onclick="apriDoc(${b.docInvio})">📄 Report inviato</button>`:''}<button class="btn bg bsm" onclick="openPagMo('${k}')">✓ Segna pagato</button>`;
     else az=`${b.docRicevuta?`<button class="btn bgh bsm" onclick="apriDoc(${b.docRicevuta})">🧾 Ricevuta</button>`:`<button class="btn bgh bsm" onclick="apriRicevuta('${k}')">🧾 Ricevuta</button>`}${b.docInvio?`<button class="btn bgh bsm" onclick="apriDoc(${b.docInvio})">📄 Report</button>`:''}`;
+    if(!zero&&s!=='stima')az+=`<button class="btn bgh bsm" onclick="scaricaReport('${k}')">⬇️ Scarica PDF</button>`;
     const docsBim=documenti.filter(d=>d.bim===k);
     h+=`<div class="bcard" style="border:1px solid ${s==='pagato'?'var(--g)':s==='inviato'?'rgba(59,130,246,.5)':s==='dainviare'&&!zero?'rgba(249,115,22,.5)':'var(--bd)'}">
       <div class="bcard-hdr" onclick="toggleBimD('${k}')">
@@ -2240,6 +2241,13 @@ function creaDoc(tipo,k){
   return d;
 }
 function apriReport(k){apriDoc(creaDoc('rimborso',k).id)}
+// PDF del report in un tocco: se il report è già stato inviato uso proprio quello (stesso documento
+// mandato all'azienda), altrimenti lo genero dai dati attuali
+function scaricaReport(k){
+  const b=bimByKey(k);
+  const inv=b&&b.docInvio&&documenti.find(d=>d.id===b.docInvio);
+  condividiPDF((inv||creaDoc('rimborso',k)).id);
+}
 
 // ── anteprima HTML (stesse classi usate per la stampa) ──
 function repHTML(rep){
