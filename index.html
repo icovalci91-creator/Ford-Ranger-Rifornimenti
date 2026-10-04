@@ -8,7 +8,7 @@
 <meta name="apple-mobile-web-app-title" content="RangerTrack"/>
 <meta name="theme-color" content="#0f0f0f"/>
 <meta http-equiv="Cache-Control" content="no-cache,no-store,must-revalidate"/>
-<title>RangerTrack v2026.10.04-4</title>
+<title>RangerTrack v2026.10.04-5</title>
 <link rel="apple-touch-icon" href="/apple-touch-icon.png"/>
 <link rel="preconnect" href="https://fonts.googleapis.com"/>
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@400;700;900&family=Barlow:wght@400;500&display=swap"/>
@@ -397,7 +397,7 @@ hr{border:none;border-top:1px solid var(--bd);margin:14px 0}
 </div>
 
 <script>
-const APP_VER='2026.10.04-4';
+const APP_VER='2026.10.04-5';
 // ── STORAGE ──────────────────────────────────────────────────────────────────
 const LS={
   get:(k,d)=>{try{const v=localStorage.getItem(k);return v!==null?JSON.parse(v):d}catch{return d}},
@@ -1773,7 +1773,7 @@ function rBolletta(){
   <div style="font-family:'Barlow Condensed',sans-serif;font-size:11px;font-weight:700;letter-spacing:3px;text-transform:uppercase;color:var(--o);margin-bottom:10px">🏢 Bolletta Aziendale</div>
   <div class="card">
     <div class="ctitle" style="font-size:12px">📄 Carica bolletta aziendale</div>
-    <p class="info">Ogni 2 mesi. Si rimborsano solo i costi che <strong>variano con i kWh consumati</strong> (materia energia, trasporto quota energia, oneri ASOS/ARIM, accise…): niente quote fisse né quota potenza. Sconto soci ripartito sul consumo totale, IVA inclusa. L'AI propone le voci, tu le confermi; il calcolo passo per passo finisce nel report.</p>
+    <p class="info">Ogni 2 mesi. Si rimborsano solo i costi che <strong>variano con i kWh consumati</strong> (materia energia, trasporto quota energia, oneri ASOS/ARIM, accise…): niente quote fisse né quota potenza. Le parti a importo fisso che però dipendono dai consumi si ripartiscono in proporzione ai kWh. Sconto soci ripartito sul consumo totale, IVA inclusa. L'AI propone le voci, tu le confermi; il calcolo passo per passo finisce nel report.</p>
     <div class="up ug" id="up-baz" onclick="document.getElementById('fi-baz').click()"><input type="file" accept="image/*,application/pdf" id="fi-baz" style="display:none"/>
     <div id="pv-baz"><div class="uico">🏢</div><div class="utxt">Tocca per caricare PDF o foto bolletta aziendale</div></div></div>
     <div id="ld-baz" style="display:none" class="ld"><div class="sp sg"></div> Analisi...</div>
@@ -1833,22 +1833,23 @@ let vociAz=[];
 const r6=v=>Math.round(n(v)*1e6)/1e6;
 function calcoloCoeffAz(o){
   const kwh=n(o.kwh),iva=n(o.iva);
-  const comp=(o.componenti||[]).map(c=>({d:c.d,imp:n(c.imp),eurKwh:r6(n(c.imp)&&kwh?n(c.imp)/kwh:c.ek)})).filter(c=>c.eurKwh);
+  const comp=(o.componenti||[]).map(c=>({d:c.d,imp:n(c.imp),prop:!!c.prop,eurKwh:r6(n(c.imp)&&kwh?n(c.imp)/kwh:c.ek)})).filter(c=>c.eurKwh);
   const lordo=comp.length?r6(comp.reduce((t,c)=>t+c.eurKwh,0)):(kwh?r6(n(o.lordo)/kwh):0);
   const sconto=kwh?r6(n(o.sconto)/kwh):0,netto=r6(lordo-sconto),coeff=r6(netto*(1+iva/100));
-  return{comp,lordo,sconto,netto,iva,coeff,lordoEur:comp.length?r2(comp.reduce((t,c)=>t+(c.imp||c.eurKwh*kwh),0)):n(o.lordo)};
+  return{comp,kwh,lordo,sconto,netto,iva,coeff,lordoEur:comp.length?r2(comp.reduce((t,c)=>t+(c.imp||c.eurKwh*kwh),0)):n(o.lordo)};
 }
 const e6=v=>n(v).toFixed(6).replace('.',',');
 function calcCoeffAz(){
   const g=id=>document.getElementById(id);
   const C=calcoloCoeffAz({kwh:g('b-kwh')?.value,iva:g('b-iva')?.value,sconto:g('b-sc')?.value,lordo:g('b-var')?.value,
-    componenti:vociAz.filter(v=>v.sel).map(v=>({d:v.d,imp:v.imp,ek:v.ek}))});
+    componenti:vociAz.filter(v=>v.sel).map(v=>({d:v.d,imp:v.imp,ek:v.ek,prop:v.prop}))});
   if(vociAz.length&&g('b-var'))g('b-var').value=C.lordoEur.toFixed(2);
   if(!(C.lordo>0))return;
   if(g('b-coeff'))g('b-coeff').value=C.coeff.toFixed(6);
   const h=g('b-coeff-hint');
   if(h)h.innerHTML=`${e6(C.lordo)} lordo − ${e6(C.sconto)} sconto = ${e6(C.netto)} × ${(1+C.iva/100).toFixed(2).replace('.',',')} IVA = <strong style="color:var(--g)">${e6(C.coeff)} €/kWh</strong>`;
 }
+function setTipoVoce(i,t){const v=vociAz[i];v.sel=t!=='f';v.prop=t==='p';renderVociAz()}
 function renderVociAz(){
   const el=document.getElementById('voci-baz');if(!el)return;
   if(!vociAz.length){el.innerHTML='';return}
@@ -1856,11 +1857,13 @@ function renderVociAz(){
   const ek=v=>v.imp&&kwh?v.imp/kwh:v.ek;
   const sel=vociAz.filter(v=>v.sel),fisse=r2(vociAz.filter(v=>!v.sel).reduce((t,v)=>t+v.imp,0));
   el.innerHTML=`<div style="margin-top:10px;background:var(--bg3);border:1px solid var(--bd);border-radius:8px;padding:10px 12px;font-size:12px">
-    <div style="font-size:9px;letter-spacing:2px;text-transform:uppercase;color:var(--g);margin-bottom:6px">Componenti della bolletta · spunta quelle a consumo</div>
-    ${vociAz.map((v,i)=>`<label style="display:flex;align-items:center;gap:8px;padding:5px 0;border-top:1px solid var(--bd);cursor:pointer;opacity:${v.sel?1:.55}">
-      <input type="checkbox" ${v.sel?'checked':''} onchange="vociAz[${i}].sel=this.checked;renderVociAz()" style="width:18px;height:18px;accent-color:#22c55e"/>
-      <span style="flex:1">${es(v.d)}</span><span style="white-space:nowrap;text-align:right">${v.imp?'€ '+v.imp.toFixed(2):''}<br/><span style="color:var(--mu);font-size:10px">${ek(v)?e6(ek(v))+' €/kWh':''}</span></span></label>`).join('')}
-    <div style="display:flex;justify-content:space-between;margin-top:6px;padding-top:6px;border-top:1px solid var(--g)"><span>✅ Componenti a consumo (${sel.length})</span><strong style="color:var(--g)">€ ${r2(sel.reduce((t,v)=>t+(v.imp||v.ek*kwh),0)).toFixed(2)}</strong></div>
+    <div style="font-size:9px;letter-spacing:2px;text-transform:uppercase;color:var(--g);margin-bottom:4px">Componenti della bolletta</div>
+    <div style="font-size:10px;color:var(--mu);margin-bottom:6px"><strong>€/kWh</strong> = a consumo · <strong>∝ kWh</strong> = importo fisso legato ai consumi, ripartito in proporzione ai kWh · <strong>fissa</strong> = esclusa</div>
+    ${vociAz.map((v,i)=>{const t=!v.sel?'f':v.prop?'p':'v',b=(k,l)=>`<button type="button" class="btn bsm ${t===k?(k==='f'?'bo':'bg'):'bgh'}" style="padding:4px 7px;font-size:10px" onclick="setTipoVoce(${i},'${k}')">${l}</button>`;
+      return`<div style="display:flex;align-items:center;gap:8px;padding:6px 0;border-top:1px solid var(--bd);opacity:${v.sel?1:.55};flex-wrap:wrap">
+      <span style="flex:1;min-width:120px">${es(v.d)}</span><span style="white-space:nowrap;text-align:right">${v.imp?'€ '+v.imp.toFixed(2):''}<br/><span style="color:var(--mu);font-size:10px">${v.sel&&ek(v)?e6(ek(v))+' €/kWh':''}</span></span>
+      <div style="display:flex;gap:3px">${b('v','€/kWh')}${b('p','∝ kWh')}${b('f','fissa')}</div></div>`}).join('')}
+    <div style="display:flex;justify-content:space-between;margin-top:6px;padding-top:6px;border-top:1px solid var(--g)"><span>✅ Incluse nel rimborso (${sel.length})</span><strong style="color:var(--g)">€ ${r2(sel.reduce((t,v)=>t+(v.imp||v.ek*kwh),0)).toFixed(2)}</strong></div>
     <div style="display:flex;justify-content:space-between;color:var(--mu)"><span>Escluse (fisse)</span><span>€ ${fisse.toFixed(2)}</span></div>
   </div>`;
   calcCoeffAz();
@@ -1877,7 +1880,7 @@ function saveBollAz(){
   const kwhtot=n(document.getElementById('b-kwh')?.value);
   const manuale=n(document.getElementById('b-coeff')?.value);
   const variabili=n(document.getElementById('b-var')?.value),iva=n(document.getElementById('b-iva')?.value);
-  const componenti=vociAz.filter(v=>v.sel).map(v=>({d:v.d,imp:v.imp,ek:v.ek}));
+  const componenti=vociAz.filter(v=>v.sel).map(v=>({d:v.d,imp:v.imp,ek:v.ek,prop:v.prop||undefined}));
   const C=calcoloCoeffAz({kwh:kwhtot,iva,sconto,lordo:variabili,componenti});
   let coeff=manuale||(C.lordo>0?C.coeff:0);
   if(!coeff){showToast('Inserisci kWh e componenti variabili, oppure il coefficiente',false,true);return}
@@ -2226,10 +2229,10 @@ async function extractBoll(file,tipo){
   try{
     const prompt=isCasa
       ?'Bolletta elettrica domestica. JSON puro:\n{"costoKwh":"","totaleKwh":"","totaleFattura":"","periodo":"","dataInizio":"","dataFine":"","fornitore":""}\ndataInizio/dataFine = periodo di fatturazione dei consumi in formato YYYY-MM-DD (non la data di emissione). Solo JSON.'
-      :'Bolletta elettrica aziendale (italiana). Elenca TUTTE le componenti di costo (IVA esclusa), anche dal dettaglio delle pagine interne, con importo in euro e, se indicato, prezzo unitario. Per ognuna indica se e VARIABILE, cioe proporzionale ai kWh consumati (€/kWh), oppure FISSA.\n'+
+      :'Bolletta elettrica aziendale (italiana). Elenca TUTTE le componenti di costo (IVA esclusa), anche dal dettaglio delle pagine interne, con importo in euro e, se indicato, prezzo unitario. Per ognuna indica il tipo: "variabile" se e espressa in €/kWh; "proporzionale" se e un importo fisso in euro che pero dipende dai consumi (es. conguagli o ricalcoli dei consumi, perdite, dispacciamento o altri corrispettivi indicati solo come totale, componenti legate all energia prelevata); "fissa" se c e a prescindere dal consumo.\n'+
        'Variabili: materia energia quota energia (tutte le fasce, perdite e dispacciamento compresi), trasporto e gestione contatore QUOTA ENERGIA, oneri di sistema QUOTA ENERGIA (ASOS, ARIM), accise. Raggruppa per componente (es. una riga per la materia energia sommando le fasce).\n'+
-       'Fisse: quote fisse (€/mese o €/punto di prelievo), quota potenza (€/kW), canone RAI, bollo, interessi, altre partite. NON elencare tra le componenti lo sconto soci, IVA, totali o subtotali.\nJSON puro:\n'+
-       '{"voci":[{"descrizione":"","importo":"","eurKwh":"","variabile":true}],"aliquotaIva":"","totaleKwh":"","totaleFattura":"","scontoSoci":"","periodo":"","dataInizio":"","dataFine":"","dataEmissione":"","fornitore":"","numeroBolletta":""}\n'+
+       'Fisse: quote fisse (€/mese o €/punto di prelievo), quota potenza (€/kW), canone RAI, bollo, interessi. NON elencare tra le componenti lo sconto soci, IVA, totali o subtotali.\nJSON puro:\n'+
+       '{"voci":[{"descrizione":"","importo":"","eurKwh":"","tipo":"variabile|proporzionale|fissa"}],"aliquotaIva":"","totaleKwh":"","totaleFattura":"","scontoSoci":"","periodo":"","dataInizio":"","dataFine":"","dataEmissione":"","fornitore":"","numeroBolletta":""}\n'+
        'importo ed eurKwh solo numeri con il punto decimale. scontoSoci = importo positivo dello sconto soci (vuoto se assente). dataInizio/dataFine = periodo di fatturazione dei consumi in formato YYYY-MM-DD (non la data di emissione). dataEmissione in formato YYYY-MM-DD. Solo JSON.';
     const j=await callGemini(file,prompt,isCasa?600:3000);
     const p=JSON.parse(j);
@@ -2246,7 +2249,8 @@ async function extractBoll(file,tipo){
       if(p.totaleFattura){const e=document.getElementById('b-tot');if(e)e.value=p.totaleFattura}
       {const e=document.getElementById('b-sc');if(e)e.value=p.scontoSoci?String(Math.abs(n(p.scontoSoci))):''}
       if(p.periodo){const e=document.getElementById('b-per');if(e)e.value=p.periodo}
-      vociAz=(Array.isArray(p.voci)?p.voci:[]).filter(v=>v&&v.descrizione&&(n(v.importo)||n(v.eurKwh))).map(v=>({d:String(v.descrizione),imp:r2(n(v.importo)),ek:n(v.eurKwh),sel:v.variabile===true||v.variabile==='true'}));
+      vociAz=(Array.isArray(p.voci)?p.voci:[]).filter(v=>v&&v.descrizione&&(n(v.importo)||n(v.eurKwh))).map(v=>{const t=String(v.tipo||(v.variabile===true||v.variabile==='true'?'variabile':'fissa')).toLowerCase();
+        return{d:String(v.descrizione),imp:r2(n(v.importo)),ek:n(v.eurKwh),sel:!t.startsWith('fiss'),prop:t.startsWith('prop')}});
       if(n(p.aliquotaIva)){const e=document.getElementById('b-iva');if(e)e.value=String(n(p.aliquotaIva))}
       renderVociAz();
     }
@@ -2355,14 +2359,15 @@ function scaricaReport(k){
 // ── anteprima HTML (stesse classi usate per la stampa) ──
 // passaggi del calcolo del coefficiente, come nel primo report
 function righeCriterio(C){
-  const r=C.comp.map(c=>['Componente variabile '+c.d.charAt(0).toLowerCase()+c.d.slice(1),e6(c.eurKwh)+' EUR/kWh']);
-  r.push([C.comp.length?'Totale componenti variabili lorde':'Componenti variabili lorde ('+eurIt(C.lordoEur)+' / kWh)',e6(C.lordo)+' EUR/kWh']);
+  const min=d=>d.charAt(0).toLowerCase()+d.slice(1);
+  const r=C.comp.map(c=>[c.prop&&c.imp&&C.kwh?`Quota fissa legata al consumo, ripartita sui kWh: ${min(c.d)} (${eurIt(c.imp)} / ${String(C.kwh).replace('.',',')} kWh)`:'Componente variabile '+min(c.d),e6(c.eurKwh)+' EUR/kWh']);
+  r.push([C.comp.length?(C.comp.some(c=>c.prop)?'Totale componenti legate al consumo (lorde)':'Totale componenti variabili lorde'):'Componenti variabili lorde ('+eurIt(C.lordoEur)+' / kWh)',e6(C.lordo)+' EUR/kWh']);
   if(C.sconto)r.push(['Sconto soci ripartito sul consumo totale','- '+e6(C.sconto)+' EUR/kWh']);
   r.push(['Costo variabile netto prima di IVA',e6(C.netto)+' EUR/kWh']);
   if(C.iva)r.push(['Costo variabile netto IVA inclusa ('+String(C.iva).replace('.',',')+'%)',e6(C.coeff)+' EUR/kWh']);
   return r;
 }
-const TESTO_CRITERIO="Il calcolo considera solo i costi proporzionali ai kWh consumati, escludendo le quote fisse e la quota potenza, con sconto soci ripartito pro-quota sul consumo totale";
+const TESTO_CRITERIO="Il calcolo considera solo i costi proporzionali ai kWh consumati, escludendo le quote fisse indipendenti dal consumo e la quota potenza; le parti a importo fisso che dipendono dai consumi sono ripartite in proporzione ai kWh, con sconto soci ripartito pro-quota sul consumo totale";
 const NOTA_ARROT="Importo arrotondato all'euro superiore in via prudenziale rispetto al dato tecnico puntuale, tenendo conto di possibili piccole dispersioni e delle approssimazioni proprie dei dati di ricarica rilevati da applicazione.";
 function repHTML(rep){
   const ric=rep.tipo==='ricevuta';
@@ -2469,10 +2474,10 @@ function MiniPDF(){
   };
 }
 // testo su più righe dentro la larghezza w (MiniPDF misura i caratteri)
-function testoACapo(p,x,y,t,w,size,color){
+function testoACapo(p,x,y,t,w,size,color,bold){
   const parole=String(t).split(' ');let riga='';
-  const scrivi=r=>{p.text(x,y,r,{size,color});y+=size+3};
-  parole.forEach(pa=>{const prova=riga?riga+' '+pa:pa;if(p.width(prova,size)>w&&riga){scrivi(riga);riga=pa}else riga=prova});
+  const scrivi=r=>{p.text(x,y,r,{size,color,bold});y+=size+3};
+  parole.forEach(pa=>{const prova=riga?riga+' '+pa:pa;if(p.width(prova,size,bold)>w&&riga){scrivi(riga);riga=pa}else riga=prova});
   if(riga)scrivi(riga);
   return y;
 }
@@ -2510,7 +2515,8 @@ function repPDF(rep){
     sezione('Criterio adottato');
     y=testoACapo(p,L,y,TESTO_CRITERIO+(rep.criterio.iva?', IVA inclusa':'')+'.',R-L,9);y+=4;
     const rr=righeCriterio(rep.criterio);
-    rr.forEach((r,i)=>{spazio(16);const ult=i===rr.length-1;p.text(L,y,(i+1)+'. '+r[0],{size:9.5,bold:ult});p.text(R,y,r[1],{size:9.5,bold:ult,align:'right'});y+=6;p.line(L,y,R,y,.3,[.92,.92,.92]);y+=11});
+    rr.forEach((r,i)=>{spazio(28);const ult=i===rr.length-1;p.text(R,y,r[1],{size:9.5,bold:ult,align:'right'});
+      y=testoACapo(p,L,y,(i+1)+'. '+r[0],R-L-p.width(r[1],9.5,ult)-14,9.5,undefined,ult)-12.5;y+=6;p.line(L,y,R,y,.3,[.92,.92,.92]);y+=11});
     y+=8;
   }
   const C1=L+6,C2=L+200,C3=R-6;
