@@ -8,7 +8,7 @@
 <meta name="apple-mobile-web-app-title" content="RangerTrack"/>
 <meta name="theme-color" content="#0f0f0f"/>
 <meta http-equiv="Cache-Control" content="no-cache,no-store,must-revalidate"/>
-<title>RangerTrack v2026.10.04-2</title>
+<title>RangerTrack v2026.10.04-3</title>
 <link rel="apple-touch-icon" href="/apple-touch-icon.png"/>
 <link rel="preconnect" href="https://fonts.googleapis.com"/>
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@400;700;900&family=Barlow:wght@400;500&display=swap"/>
@@ -397,7 +397,7 @@ hr{border:none;border-top:1px solid var(--bd);margin:14px 0}
 </div>
 
 <script>
-const APP_VER='2026.10.04-2';
+const APP_VER='2026.10.04-3';
 // ── STORAGE ──────────────────────────────────────────────────────────────────
 const LS={
   get:(k,d)=>{try{const v=localStorage.getItem(k);return v!==null?JSON.parse(v):d}catch{return d}},
@@ -1062,11 +1062,12 @@ function rTotaleNonPagato(maturato){
   </div>`;
 }
 function daFareRimborso(){
-  const out={invia:[],attesaPag:[],bolletta:[],cambiati:[],correggi:ricDaCorreggere()};
+  const out={invia:[],attesaPag:[],bolletta:[],cambiati:[],sulTotale:[],correggi:ricDaCorreggere()};
   bimArch.forEach(b=>{
     const s=statoBim(b);
     if(s==='dainviare'&&n(b.totImp)>0)out.invia.push(b);
     if(s==='inviato')out.attesaPag.push(b);
+    if(s!=='pagato'&&!b.stima&&bollSulTotale(b.bolletta))out.sulTotale.push(b);
     if(s==='stima'&&n(b.totImp)>0)out.bolletta.push(b);
     if((s==='inviato'&&b.inviatoImporto!==undefined&&arrot(b.totImp)!==b.inviatoImporto)||
        (s==='pagato'&&b.pagatoImporto!==undefined&&arrot(b.totImp)!==b.pagatoImporto))out.cambiati.push(b);
@@ -1113,6 +1114,9 @@ function rRimborso(){
   df.cambiati.forEach(b=>righe.push(`<div style="display:flex;align-items:center;gap:8px;padding:7px 0;border-top:1px solid var(--bd)">
     <span style="flex:1">⚠️ <strong>${es(b.label)}</strong>: importo cambiato dopo ${b.pagato?'il pagamento':"l'invio"} (era € ${b.pagato?b.pagatoImporto:b.inviatoImporto},00, ora € ${arrot(b.totImp)},00)</span>
     <button class="btn bgh bsm" onclick="apriInvio('${b.key}')">📄 Nuovo report</button></div>`));
+  df.sulTotale.forEach(b=>righe.push(`<div style="display:flex;align-items:center;gap:8px;padding:7px 0;border-top:1px solid var(--bd)">
+    <span style="flex:1">⚠️ <strong>${es(b.label)}</strong>: coefficiente € ${n(b.costoKwh).toFixed(5)} calcolato sul <strong>totale</strong> della bolletta (quote fisse incluse). Ricarica la bolletta: si rimborsano solo i costi a consumo.</span>
+    <button class="btn bgh bsm" onclick="sw('bolletta')">🧾 Bolletta</button></div>`));
   df.invia.forEach(b=>righe.push(`<div style="display:flex;align-items:center;gap:8px;padding:7px 0;border-top:1px solid var(--bd)">
     <span style="flex:1">📤 <strong>${es(b.label)}</strong> · € ${arrot(b.totImp)},00 · pronto da inviare</span>
     <button class="btn bg bsm" onclick="apriInvio('${b.key}')">📤 Invia</button></div>`));
@@ -1769,20 +1773,23 @@ function rBolletta(){
   <div style="font-family:'Barlow Condensed',sans-serif;font-size:11px;font-weight:700;letter-spacing:3px;text-transform:uppercase;color:var(--o);margin-bottom:10px">🏢 Bolletta Aziendale</div>
   <div class="card">
     <div class="ctitle" style="font-size:12px">📄 Carica bolletta aziendale</div>
-    <p class="info">Ogni 2 mesi. L'AI estrae il coefficiente €/kWh (quota variabile, escluse quote fisse).</p>
+    <p class="info">Ogni 2 mesi. Si rimborsano solo i costi che <strong>variano con i kWh consumati</strong> (energia, perdite, dispacciamento, trasporto e oneri quota energia, accise): niente quote fisse né quota potenza. Coefficiente = costi variabili ÷ kWh della bolletta. L'AI propone le voci, tu le confermi.</p>
     <div class="up ug" id="up-baz" onclick="document.getElementById('fi-baz').click()"><input type="file" accept="image/*,application/pdf" id="fi-baz" style="display:none"/>
     <div id="pv-baz"><div class="uico">🏢</div><div class="utxt">Tocca per caricare PDF o foto bolletta aziendale</div></div></div>
     <div id="ld-baz" style="display:none" class="ld"><div class="sp sg"></div> Analisi...</div>
     <div id="res-baz"></div>
+    <div id="voci-baz"></div>
     <hr/>
     <div style="font-size:11px;font-weight:700;letter-spacing:2px;text-transform:uppercase;color:var(--mu);margin-bottom:10px">Dati per PDF</div>
     <div class="fg"><div class="fl"><label>N. Bolletta</label><input type="text" id="b-num" placeholder="844/PR"/></div>
     <div class="fl"><label>Data emissione</label><input type="date" id="b-data"/></div></div>
-    <div class="fg fg3"><div class="fl"><label>kWh Totali</label><input type="text" id="b-kwh" placeholder="1672" inputmode="decimal"/></div>
+    <div class="fg fg3"><div class="fl"><label>kWh Totali</label><input type="text" id="b-kwh" placeholder="1672" inputmode="decimal" oninput="calcCoeffAz()"/></div>
     <div class="fl"><label>Totale €</label><input type="text" id="b-tot" placeholder="444.00" inputmode="decimal"/></div>
     <div class="fl"><label>Sconto soci €</label><input type="text" id="b-sc" placeholder="78.95" inputmode="decimal"/></div></div>
-    <div class="fg"><div class="fl"><label>Periodo</label><input type="text" id="b-per" placeholder="lug-ago 2026" oninput="onPeriodoChange()"/></div>
+    <div class="fg"><div class="fl"><label>Costi variabili € (a consumo)</label><input type="text" id="b-var" placeholder="211.89" inputmode="decimal" oninput="calcCoeffAz()"/></div>
     <div class="fl"><label>Coefficiente €/kWh</label><input type="text" id="b-coeff" placeholder="0.12673" inputmode="decimal"/></div></div>
+    <div id="b-coeff-hint" style="font-size:11px;color:var(--mu);margin:-6px 0 12px">Coefficiente = costi variabili ÷ kWh totali (si calcola da solo; puoi anche scriverlo a mano).</div>
+    <div class="fg"><div class="fl"><label>Periodo</label><input type="text" id="b-per" placeholder="lug-ago 2026" oninput="onPeriodoChange()"/></div><div class="fl"></div></div>
     <div class="fl" style="margin-bottom:4px"><label>Bimestre di competenza</label>
       <select id="b-bim" onchange="onBimSelChange()" style="background:var(--bg3);border:1px solid var(--bd);border-radius:4px;padding:10px;color:var(--tx);font-size:15px;width:100%;color-scheme:dark">${bimOptions(bimShift(curBim(),-1))}</select></div>
     <div id="b-bim-hint" style="font-size:11px;color:var(--mu);margin-bottom:12px">Si imposta da solo leggendo il periodo. Se non leggibile: bimestre precedente (la bolletta arriva sempre dopo).</div>
@@ -1818,14 +1825,50 @@ function rBolletta(){
   </div>`).join('')}`:''}</div></div>`;
 }
 
+// ── voci della bolletta aziendale: si rimborsano solo quelle a consumo ──
+let vociAz=[],vociIva={aliq:0,sel:false};
+function calcCoeffAz(){
+  const v=n(document.getElementById('b-var')?.value),k=n(document.getElementById('b-kwh')?.value),c=document.getElementById('b-coeff');
+  if(c&&v>0&&k>0)c.value=(Math.round(v/k*100000)/100000).toFixed(5);
+}
+function sommaVociAz(){
+  const base=r2(vociAz.filter(v=>v.sel).reduce((t,v)=>t+v.imp,0));
+  return{base,iva:vociIva.sel&&vociIva.aliq?r2(base*vociIva.aliq/100):0};
+}
+function renderVociAz(){
+  const el=document.getElementById('voci-baz');if(!el)return;
+  if(!vociAz.length){el.innerHTML='';return}
+  const S=sommaVociAz(),fisse=r2(vociAz.filter(v=>!v.sel).reduce((t,v)=>t+v.imp,0));
+  el.innerHTML=`<div style="margin-top:10px;background:var(--bg3);border:1px solid var(--bd);border-radius:8px;padding:10px 12px;font-size:12px">
+    <div style="font-size:9px;letter-spacing:2px;text-transform:uppercase;color:var(--g);margin-bottom:6px">Voci della bolletta · spunta quelle a consumo</div>
+    ${vociAz.map((v,i)=>`<label style="display:flex;align-items:center;gap:8px;padding:5px 0;border-top:1px solid var(--bd);cursor:pointer;opacity:${v.sel?1:.55}">
+      <input type="checkbox" ${v.sel?'checked':''} onchange="vociAz[${i}].sel=this.checked;renderVociAz()" style="width:18px;height:18px;accent-color:#22c55e"/>
+      <span style="flex:1">${es(v.d)}</span><span style="white-space:nowrap">€ ${v.imp.toFixed(2)}</span></label>`).join('')}
+    ${vociIva.aliq?`<label style="display:flex;align-items:center;gap:8px;padding:5px 0;border-top:1px dashed var(--bd);cursor:pointer;color:var(--mu)">
+      <input type="checkbox" ${vociIva.sel?'checked':''} onchange="vociIva.sel=this.checked;renderVociAz()" style="width:18px;height:18px;accent-color:#22c55e"/>
+      <span style="flex:1">+ IVA ${vociIva.aliq}% sulle voci a consumo</span><span>€ ${r2(S.base*vociIva.aliq/100).toFixed(2)}</span></label>`:''}
+    <div style="display:flex;justify-content:space-between;margin-top:6px;padding-top:6px;border-top:1px solid var(--g)"><span>✅ A consumo (rimborsabili)</span><strong style="color:var(--g)">€ ${(S.base+S.iva).toFixed(2)}</strong></div>
+    <div style="display:flex;justify-content:space-between;color:var(--mu)"><span>Escluse (fisse)</span><span>€ ${fisse.toFixed(2)}</span></div>
+  </div>`;
+  const e=document.getElementById('b-var');if(e)e.value=(S.base+S.iva).toFixed(2);
+  calcCoeffAz();
+}
+// bolletta salvata con il vecchio calcolo (totale − sconto soci): include le quote fisse
+function bollSulTotale(bo){
+  if(!bo||bo.criterio==='variabile')return false;
+  const t=n(bo.totaleFattura),k=n(bo.consumoTot),c=n(bo.coefficiente);
+  return t>0&&k>0&&c>0&&Math.abs((t-n(bo.scontoSoci))/k-c)<0.0005;
+}
 function saveBollAz(){
   const totale=n(document.getElementById('b-tot')?.value);
   const sconto=n(document.getElementById('b-sc')?.value);
   const kwhtot=n(document.getElementById('b-kwh')?.value);
   const manuale=n(document.getElementById('b-coeff')?.value);
+  const variabili=n(document.getElementById('b-var')?.value);
   let coeff=manuale;
-  if(!coeff&&totale>0&&kwhtot>0)coeff=Math.round((totale-sconto)/kwhtot*100000)/100000;
-  if(!coeff){showToast('Inserisci il coefficiente oppure totale e kWh',false,true);return}
+  if(!coeff&&variabili>0&&kwhtot>0)coeff=Math.round(variabili/kwhtot*100000)/100000;
+  if(!coeff){showToast('Inserisci i costi variabili e i kWh, oppure il coefficiente',false,true);return}
+  if(totale>0&&kwhtot>0&&Math.abs((totale-sconto)/kwhtot-coeff)<0.0005&&!variabili){showToast('⚠️ Questo coefficiente sembra calcolato sul totale (quote fisse incluse): inserisci solo i costi variabili',false,true);return}
   autoChiudiBimestri();
   const cur=curBim();
   const bimSel=document.getElementById('b-bim')?.value||defaultBimBolletta();
@@ -1837,7 +1880,10 @@ function saveBollAz(){
     scontoSoci:document.getElementById('b-sc')?.value.trim(),
     periodo:document.getElementById('b-per')?.value.trim(),
     nota:document.getElementById('b-nota')?.value.trim(),
-    coefficiente:coeff,bimestre:bimSel
+    coefficiente:coeff,bimestre:bimSel,
+    costiVariabili:variabili?variabili.toFixed(2):'',criterio:'variabile',
+    voci:vociAz.length?vociAz.filter(v=>v.sel).map(v=>({d:v.d,imp:v.imp})):undefined,
+    ivaInclusa:vociIva.sel&&vociIva.aliq?vociIva.aliq:undefined
   };
   // coefficiente e bolletta legati al bimestre di competenza
   const map=LS.get('rt_coeff_bim',{});map[bimSel]=coeff;LS.set('rt_coeff_bim',map);
@@ -1868,6 +1914,7 @@ function saveBollAz(){
     msg='✓ Coefficiente salvato per '+bimLbl(bimSel)+' (nessuna ricarica in quel bimestre)';
   }
   LS.set('rt_bimarch',bimArch);
+  vociAz=[];vociIva={aliq:0,sel:false};
   logEv('bolletta',`Bolletta aziendale ${bimLbl(bimSel)}${boll.numero?' n. '+boll.numero:''} · € ${coeff.toFixed(5)}/kWh`+(b?` → rimborso € ${n(b.totImp).toFixed(2)}`:''),bimSel);
   render();showToast(msg,true);
 }
@@ -1882,7 +1929,8 @@ function rStatoCoeff(){
     const ci=coeffInfo(k);
     const v=b?n(b.costoKwh):ci.v;
     const conf=b?!b.stima&&v>0:ci.src==='bolletta';
-    const stato=conf?'<span style="color:var(--g)">📄 bolletta</span>':v?'<span style="color:var(--o)">≈ stima</span>':'<span style="color:var(--mu)">—</span>';
+    const bo=(b&&b.bolletta)||LS.get('rt_boll_bim',{})[k];
+    const stato=conf&&bollSulTotale(bo)?'<span style="color:var(--r)">⚠️ calcolato sul totale: ricarica la bolletta</span>':conf?'<span style="color:var(--g)">📄 bolletta</span>':v?'<span style="color:var(--o)">≈ stima</span>':'<span style="color:var(--mu)">—</span>';
     return`<div style="display:flex;justify-content:space-between;align-items:center;padding:6px 0;border-bottom:1px solid var(--bd);font-size:12px">
       <span>${es(bimLbl(k))}${k===cur?' <span style="color:var(--mu)">(corrente)</span>':''}</span>
       <span>${stato}</span>
@@ -2164,8 +2212,12 @@ async function extractBoll(file,tipo){
   try{
     const prompt=isCasa
       ?'Bolletta elettrica domestica. JSON puro:\n{"costoKwh":"","totaleKwh":"","totaleFattura":"","periodo":"","dataInizio":"","dataFine":"","fornitore":""}\ndataInizio/dataFine = periodo di fatturazione dei consumi in formato YYYY-MM-DD (non la data di emissione). Solo JSON.'
-      :'Bolletta elettrica aziendale. JSON puro:\n{"costoKwh":"","totaleKwh":"","totaleFattura":"","scontoSoci":"","periodo":"","dataInizio":"","dataFine":"","dataEmissione":"","fornitore":"","numeroBolletta":""}\ncostoKwh=(totaleFattura-scontoSoci)/totaleKwh. dataInizio/dataFine = periodo di fatturazione dei consumi in formato YYYY-MM-DD (non la data di emissione). dataEmissione in formato YYYY-MM-DD. Solo JSON.';
-    const j=await callGemini(file,prompt,600);
+      :'Bolletta elettrica aziendale (italiana). Elenca TUTTE le voci di costo con il loro importo in euro (IVA esclusa), anche quelle nel dettaglio delle pagine interne, e per ognuna indica se e VARIABILE, cioe proporzionale ai kWh consumati (€/kWh), oppure FISSA.\n'+
+       'Variabili: materia energia quota energia/prezzo energia, perdite di rete, dispacciamento, oneri e corrispettivi in €/kWh, trasporto e gestione contatore QUOTA ENERGIA, oneri di sistema QUOTA ENERGIA (ASOS, ARIM), accise. Sconti espressi in €/kWh = variabili con importo negativo.\n'+
+       'Fisse: quote fisse (€/mese o €/punto di prelievo), quota potenza (€/kW), canone RAI, bollo, interessi, altre partite, sconti forfettari. NON includere IVA, totali o subtotali tra le voci (evita doppi conteggi).\nJSON puro:\n'+
+       '{"voci":[{"descrizione":"","importo":"","variabile":true}],"iva":"","aliquotaIva":"","totaleKwh":"","totaleFattura":"","scontoSoci":"","periodo":"","dataInizio":"","dataFine":"","dataEmissione":"","fornitore":"","numeroBolletta":""}\n'+
+       'importo solo numero con il punto decimale (negativo per gli sconti). dataInizio/dataFine = periodo di fatturazione dei consumi in formato YYYY-MM-DD (non la data di emissione). dataEmissione in formato YYYY-MM-DD. Solo JSON.';
+    const j=await callGemini(file,prompt,isCasa?600:3000);
     const p=JSON.parse(j);
     if(isCasa){
       if(p.costoKwh){const e=document.getElementById('bc-coeff');if(e)e.value=n(p.costoKwh).toFixed(4)}
@@ -2180,13 +2232,17 @@ async function extractBoll(file,tipo){
       if(p.totaleFattura){const e=document.getElementById('b-tot');if(e)e.value=p.totaleFattura}
       if(p.scontoSoci){const e=document.getElementById('b-sc');if(e)e.value=p.scontoSoci}
       if(p.periodo){const e=document.getElementById('b-per');if(e)e.value=p.periodo}
-      if(p.costoKwh){const e=document.getElementById('b-coeff');if(e)e.value=n(p.costoKwh).toFixed(5)}
+      vociAz=(Array.isArray(p.voci)?p.voci:[]).filter(v=>v&&v.descrizione&&n(v.importo)).map(v=>({d:String(v.descrizione),imp:r2(n(v.importo)),sel:v.variabile===true||v.variabile==='true'}));
+      vociIva={aliq:n(p.aliquotaIva),sel:false};
+      renderVociAz();
     }
     // bimestre di competenza riconosciuto dal periodo (solo bolletta aziendale)
     const bimRil=bimFromPeriodo(p.periodo,p.dataInizio,p.dataFine);
     setBimSel(isCasa?'bc':'b',bimRil);
     // il coefficiente letto dalla foto ha la precedenza su quello eventualmente già salvato per il bimestre
-    if(p.costoKwh){const e=document.getElementById(isCasa?'bc-coeff':'b-coeff');if(e)e.value=n(p.costoKwh).toFixed(isCasa?4:5)}
+    if(isCasa&&p.costoKwh){const e=document.getElementById('bc-coeff');if(e)e.value=n(p.costoKwh).toFixed(4)}
+    // (la scelta del bimestre riporta il coefficiente già salvato: ricalcolo dalle voci lette ora)
+    if(!isCasa){if(vociAz.length)renderVociAz();p.costoKwh=n(document.getElementById('b-coeff')?.value)}
     if(res)res.innerHTML=`<div style="margin-top:10px;padding:10px;background:rgba(34,197,94,.08);border:1px solid var(--g);border-radius:6px;font-size:12px;color:var(--g)">
       ✓ Dati estratti. Controlla e premi Salva.<br/>
       ${p.fornitore?'Fornitore: '+es(p.fornitore)+'<br/>':''}
@@ -2254,7 +2310,7 @@ function costruisciRep(tipo,k){
   const totKwh=r2(mesi.reduce((s,x)=>s+x.kwh,0)),totImp=r2(totKwh*cKwh);
   return{v:1,tipo,bim:k,label:bimLbl(k),generato:new Date().toISOString(),
     provvisorio:prov,inCorso:k===cur,coeff:cKwh,
-    bolletta:boll?{numero:boll.numero||'',periodo:boll.periodo||'',consumoTot:boll.consumoTot||'',totaleFattura:boll.totaleFattura||'',scontoSoci:boll.scontoSoci||'',nota:boll.nota||''}:null,
+    bolletta:boll?{numero:boll.numero||'',periodo:boll.periodo||'',consumoTot:boll.consumoTot||'',totaleFattura:boll.totaleFattura||'',scontoSoci:boll.scontoSoci||'',costiVariabili:boll.costiVariabili||'',nota:boll.nota||''}:null,
     mesi,totKwh,totImp,arrotondato:arrot(totImp),
     pagamento:tipo==='ricevuta'&&b?{data:b.dataPag||'',note:b.notePag||''}:null};
 }
@@ -2296,6 +2352,7 @@ function repHTML(rep){
         <tr><td><strong>Consumo totale</strong></td><td>${bo&&bo.consumoTot?es(bo.consumoTot)+' kWh':'—'}</td></tr>
         <tr><td><strong>Totale bolletta</strong></td><td>${bo&&bo.totaleFattura?eurIt(bo.totaleFattura):'—'}</td></tr>
         <tr><td><strong>Sconto soci</strong></td><td>${bo&&bo.scontoSoci?'- '+eurIt(bo.scontoSoci):'—'}</td></tr>
+        ${bo&&bo.costiVariabili?`<tr><td><strong>Costi a consumo</strong></td><td>${eurIt(bo.costiVariabili)} (quote fisse escluse)</td></tr>`:''}
         <tr><td><strong>Coefficiente</strong></td><td>EUR ${rep.coeff.toFixed(5).replace('.',',')} per kWh</td></tr>
       </tbody></table></div>
     ${rep.mesi.map(m=>`<div class="psec"><div class="psect">Dettaglio ricariche - ${es(m.label)}</div>
@@ -2407,6 +2464,7 @@ function repPDF(rep){
   kv('Consumo totale',bo&&bo.consumoTot?bo.consumoTot+' kWh':'—');
   kv('Totale bolletta',bo&&bo.totaleFattura?eurIt(bo.totaleFattura):'—');
   kv('Sconto soci',bo&&bo.scontoSoci?'- '+eurIt(bo.scontoSoci):'—');
+  if(bo&&bo.costiVariabili)kv('Costi a consumo',eurIt(bo.costiVariabili)+' (quote fisse escluse)');
   kv('Coefficiente','EUR '+rep.coeff.toFixed(5).replace('.',',')+' per kWh');
   y+=8;
   const C1=L+6,C2=L+200,C3=R-6;
