@@ -50,6 +50,12 @@ post_install do |installer|
       t.build_configurations.each do |c|
         cambiato |= aggiungi.call(c, 'OTHER_SWIFT_FLAGS', ['-Xcc', '-Wno-deprecated-declarations'])
         cambiato |= aggiungi.call(c, 'OTHER_CFLAGS', ['-Wno-deprecated-declarations'])
+        # "User Script Sandboxing" (attivato da "Update to recommended settings" di Xcode) blocca gli
+        # script di CocoaPods ("[CP] Embed Pods Frameworks") → "PhaseScriptExecution failed": lo spengo
+        if c.build_settings['ENABLE_USER_SCRIPT_SANDBOXING'] != 'NO'
+          c.build_settings['ENABLE_USER_SCRIPT_SANDBOXING'] = 'NO'
+          cambiato = true
+        end
         # Siri / Comandi rapidi (App Intents) richiedono almeno iOS 16: alzo il minimo solo se è più basso
         if c.build_settings['IPHONEOS_DEPLOYMENT_TARGET'].to_s.to_f < 16.0
           c.build_settings['IPHONEOS_DEPLOYMENT_TARGET'] = '16.0'
@@ -67,6 +73,7 @@ post_install do |installer|
       # avvisi del codice delle librerie (Swift e Objective-C) nascosti
       config.build_settings['SWIFT_SUPPRESS_WARNINGS'] = 'YES'
       config.build_settings['GCC_WARN_INHIBIT_ALL_WARNINGS'] = 'YES'
+      config.build_settings['ENABLE_USER_SCRIPT_SANDBOXING'] = 'NO'
     end
   end
 end

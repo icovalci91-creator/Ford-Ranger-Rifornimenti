@@ -50,6 +50,16 @@ if grep -q "class CloudSyncPlugin" ios/App/App/AppDelegate.swift && grep -q 'cus
 else
   echo "✗ Plugin iCloud MANCANTE: manda una foto di questo messaggio"; ok=0
 fi
+if diff -q ios/App/Podfile.lock ios/App/Pods/Manifest.lock >/dev/null 2>&1; then
+  echo "✓ Pod installati e allineati"
+else
+  echo "✗ Pod non allineati: esegui  cd mobile/ios/App && pod install  e rilancia lo script"; ok=0
+fi
+if grep -q "ENABLE_USER_SCRIPT_SANDBOXING = YES" ios/App/App.xcodeproj/project.pbxproj; then
+  echo "✗ User Script Sandboxing ancora attivo: in Xcode, target App › Build Settings › User Script Sandboxing = No"; ok=0
+else
+  echo "✓ Script di build non bloccati (User Script Sandboxing spento)"
+fi
 if grep -q "struct RangerScorciatoie: AppShortcutsProvider" ios/App/App/AppDelegate.swift; then
   echo "✓ Siri e Comandi rapidi inclusi (iOS minimo 16)"
 else
