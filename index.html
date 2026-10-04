@@ -8,7 +8,7 @@
 <meta name="apple-mobile-web-app-title" content="RangerTrack"/>
 <meta name="theme-color" content="#0f0f0f"/>
 <meta http-equiv="Cache-Control" content="no-cache,no-store,must-revalidate"/>
-<title>RangerTrack v2026.10.04-1</title>
+<title>RangerTrack v2026.10.04-2</title>
 <link rel="apple-touch-icon" href="/apple-touch-icon.png"/>
 <link rel="preconnect" href="https://fonts.googleapis.com"/>
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@400;700;900&family=Barlow:wght@400;500&display=swap"/>
@@ -397,7 +397,7 @@ hr{border:none;border-top:1px solid var(--bd);margin:14px 0}
 </div>
 
 <script>
-const APP_VER='2026.10.04-1';
+const APP_VER='2026.10.04-2';
 // ── STORAGE ──────────────────────────────────────────────────────────────────
 const LS={
   get:(k,d)=>{try{const v=localStorage.getItem(k);return v!==null?JSON.parse(v):d}catch{return d}},
@@ -1032,6 +1032,35 @@ function bimByKey(k){return bimArch.find(b=>b.key===k)||null}
 // ricariche che non stanno in nessun bimestre (data illeggibile o nel futuro): vanno corrette
 function ricDaCorreggere(){const cur=curBim();return ricAz.filter(r=>{const k=bimOfRic(r);return !k||k>cur})}
 // cose da fare sui rimborsi (stesse regole per il riquadro "Da fare" e per il pallino sul tab)
+// totale dei rimborsi non ancora incassati (bimestri chiusi) + quanto sta maturando il bimestre in corso
+function totaleNonPagato(maturato){
+  const df=daFareRimborso(),somma=a=>a.reduce((t,v)=>t+v,0);
+  const inv=df.attesaPag.map(b=>b.inviatoImporto??arrot(b.totImp));
+  const dainv=df.invia.map(b=>arrot(b.totImp));
+  const stima=df.bolletta.map(b=>arrot(b.totImp));
+  const vecchio=df.attesaPag.reduce((m,b)=>Math.max(m,giorniDa(b.inviato)),0);
+  return{inviati:somma(inv),nInv:inv.length,daInviare:somma(dainv),nDaInv:dainv.length,stima:somma(stima),nStima:stima.length,
+    chiusi:somma(inv)+somma(dainv)+somma(stima),inCorso:r2(n(maturato)),vecchio};
+}
+function rTotaleNonPagato(maturato){
+  const T=totaleNonPagato(maturato);
+  if(!T.chiusi&&!T.inCorso)return'';
+  const riga=(ico,lbl,nn,v,col,nota)=>nn||v?`<div style="display:flex;justify-content:space-between;gap:8px;padding:5px 0;border-top:1px solid var(--bd)">
+    <span>${ico} ${lbl}${nn?` <span style="color:var(--mu)">(${nn})</span>`:''}${nota?` <span style="color:var(--mu);font-size:10px">${nota}</span>`:''}</span><strong style="color:${col};white-space:nowrap">€ ${v},00</strong></div>`:'';
+  return`<div style="background:rgba(59,130,246,.07);border:1px solid var(--b);border-radius:8px;padding:12px 14px;margin-bottom:10px;font-size:12px">
+    <div style="display:flex;justify-content:space-between;align-items:flex-end;gap:8px;margin-bottom:6px">
+      <div><div style="font-size:9px;letter-spacing:3px;text-transform:uppercase;color:var(--b)">💶 Da incassare in totale</div>
+      <div style="font-size:10px;color:var(--mu)">bimestri chiusi non ancora pagati</div></div>
+      <div style="font-family:'Barlow Condensed',sans-serif;font-size:30px;font-weight:900;color:var(--b);line-height:1">€ ${T.chiusi},00</div>
+    </div>
+    ${riga('⏳','Inviati, in attesa di pagamento',T.nInv,T.inviati,'var(--b)',T.nInv?`· il più vecchio da ${T.vecchio} gg`:'')}
+    ${riga('📤','Da inviare',T.nDaInv,T.daInviare,'var(--o)')}
+    ${riga('🧾','In attesa di bolletta (stima)',T.nStima,T.stima,'var(--mu)')}
+    ${T.inCorso?`<div style="display:flex;justify-content:space-between;gap:8px;padding:5px 0;border-top:1px dashed var(--bd);color:var(--mu)">
+      <span>➕ Bimestre in corso (sta maturando)</span><span>≈ € ${T.inCorso.toFixed(2)}</span></div>
+    <div style="text-align:right;font-size:11px;color:var(--mu)">con il bimestre in corso ≈ <strong style="color:var(--tx)">€ ${(T.chiusi+T.inCorso).toFixed(2)}</strong></div>`:''}
+  </div>`;
+}
 function daFareRimborso(){
   const out={invia:[],attesaPag:[],bolletta:[],cambiati:[],correggi:ricDaCorreggere()};
   bimArch.forEach(b=>{
@@ -1076,6 +1105,8 @@ function rRimborso(){
     <div style="font-family:'Barlow Condensed',sans-serif;font-size:20px;font-weight:900">${bimLbl(curK)}</div>
     <div style="font-size:10px;color:var(--mu)">Si apre e si chiude da solo · i bimestri precedenti sono nell'elenco «Bimestri precedenti»</div>
   </div>`;
+
+  h+=rTotaleNonPagato(totImp);
 
   // Da fare
   const righe=[];
@@ -2712,7 +2743,9 @@ function siriTesto(){
   if(df.invia.length)p.push('Da inviare: '+df.invia.map(b=>`${bimParlato(b.key)}, ${euroParlati(arrot(b.totImp))}`).join('; ')+'.');
   if(df.attesaPag.length)p.push('In attesa di pagamento: '+df.attesaPag.map(b=>{const g=giorniDa(b.inviato);return`${bimParlato(b.key)}, ${euroParlati(b.inviatoImporto??arrot(b.totImp))}, inviato ${g===0?'oggi':g===1?'ieri':g+' giorni fa'}`}).join('; ')+'.');
   if(df.bolletta.length)p.push('In attesa di bolletta: '+df.bolletta.map(b=>bimParlato(b.key)).join(', ')+'.');
-  if(!df.invia.length&&!df.attesaPag.length)p.push('Nessun rimborso da inviare o da incassare.');
+  const T=totaleNonPagato(kwh*cK);
+  if(T.chiusi)p.push(`In totale devi ancora incassare ${euroParlati(T.chiusi)}, senza contare il bimestre in corso.`);
+  else p.push('Nessun rimborso da inviare o da incassare.');
   return p.join(' ');
 }
 function siriAggiorna(){
