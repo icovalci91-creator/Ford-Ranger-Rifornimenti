@@ -60,6 +60,12 @@ if grep -q "ENABLE_USER_SCRIPT_SANDBOXING = YES" ios/App/App.xcodeproj/project.p
 else
   echo "✓ Script di build non bloccati (User Script Sandboxing spento)"
 fi
+ENT=$(grep -o 'CODE_SIGN_ENTITLEMENTS = [^;]*' ios/App/App.xcodeproj/project.pbxproj | head -1 | sed 's/CODE_SIGN_ENTITLEMENTS = //; s/"//g')
+if [ -n "$ENT" ] && grep -q "CloudDocuments" "ios/App/$ENT" 2>/dev/null && grep -q "iCloud\." "ios/App/$ENT" 2>/dev/null; then
+  echo "✓ Capability iCloud attiva (iCloud Documents + contenitore)"
+else
+  echo "! Capability iCloud NON ancora attiva: la sincronizzazione resta spenta (vedi IOS_SETUP.md, sezione iPad)"
+fi
 if grep -q "struct RangerScorciatoie: AppShortcutsProvider" ios/App/App/AppDelegate.swift; then
   echo "✓ Siri e Comandi rapidi inclusi (iOS minimo 16)"
 else
