@@ -72,5 +72,17 @@
 	<string>RangerTrack può salvare nel rullino i file esportati.</string>
 	<key>UIMainStoryboardFile</key>
 	<string>Main</string>
+	<key>NSUbiquitousContainers</key>
+	<dict>
+		<key>iCloud.app.rangertrack.mobile</key>
+		<dict>
+			<key>NSUbiquitousContainerIsDocumentScopePublic</key>
+			<true/>
+			<key>NSUbiquitousContainerName</key>
+			<string>RangerTrack</string>
+			<key>NSUbiquitousContainerSupportedFolderLevels</key>
+			<string>None</string>
+		</dict>
+	</dict>
 </dict>
 </plist>

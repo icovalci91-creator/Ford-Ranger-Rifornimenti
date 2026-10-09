@@ -8,7 +8,7 @@
 <meta name="apple-mobile-web-app-title" content="RangerTrack"/>
 <meta name="theme-color" content="#0f0f0f"/>
 <meta http-equiv="Cache-Control" content="no-cache,no-store,must-revalidate"/>
-<title>RangerTrack v2026.10.04-5</title>
+<title>RangerTrack v2026.10.09-1</title>
 <link rel="apple-touch-icon" href="/apple-touch-icon.png"/>
 <link rel="preconnect" href="https://fonts.googleapis.com"/>
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@400;700;900&family=Barlow:wght@400;500&display=swap"/>
@@ -385,6 +385,14 @@ hr{border:none;border-top:1px solid var(--bd);margin:14px 0}
 </div>
 
 <!-- MODAL backup -->
+<div class="mov" id="mo-bkcloud" style="display:none" onclick="if(event.target===this)closeMo('mo-bkcloud')">
+  <div class="mo">
+    <button class="mox" onclick="closeMo('mo-bkcloud')">✕</button>
+    <div class="motitle">🗂️ Copie in iCloud</div>
+    <div id="bkc-body"></div>
+    <button class="btn bo" style="margin-top:10px" onclick="backupOra()">☁️ Salva una copia ora</button>
+  </div>
+</div>
 <div class="mov" id="mo-backup" style="display:none" onclick="if(event.target===this)closeMo('mo-backup')">
   <div class="mo">
     <button class="mox" onclick="closeMo('mo-backup')">✕</button>
@@ -397,7 +405,7 @@ hr{border:none;border-top:1px solid var(--bd);margin:14px 0}
 </div>
 
 <script>
-const APP_VER='2026.10.04-5';
+const APP_VER='2026.10.09-1';
 // ── STORAGE ──────────────────────────────────────────────────────────────────
 const LS={
   get:(k,d)=>{try{const v=localStorage.getItem(k);return v!==null?JSON.parse(v):d}catch{return d}},
@@ -2800,6 +2808,8 @@ function rSyncBox(){
     ${syncStato.msg?`<div style="color:${syncStato.s==='err'?'var(--r)':'var(--o)'};font-size:11px">${es(syncStato.msg)}</div>`:''}
     <div style="font-size:11px;color:var(--mu)">Questo dispositivo: ${es(dev.nome)}${altri.length?' · altri: '+altri.map(a=>es(a.nome)+' ('+fa(a.ts)+')').join(', '):' · nessun altro dispositivo ancora'}</div>
     <button class="btn bgh bsm" style="margin-top:8px" onclick="syncOra(true)">🔄 Sincronizza ora</button>
+    <div style="margin-top:10px">🗂️ Backup automatici: ogni ${BK_AUTO_GIORNI} giorni in iCloud Drive › RangerTrack${LS.get('rt_bk_auto_ts',0)?` · ultimo ${fa(LS.get('rt_bk_auto_ts',0))}`:' · ancora nessuno'}</div>
+    <div class="brow" style="margin-top:6px"><button class="btn bgh bsm" onclick="apriCopieCloud()">📂 Copie salvate</button><button class="btn bgh bsm" onclick="backupOra()">☁️ Salva una copia ora</button></div>
   </div>`;
 }
 
@@ -2896,8 +2906,8 @@ function fillBkSum(){
     <div style="margin-top:6px;color:${bkColor}">Ultimo backup: <strong>${bkTxt}</strong></div>
     <div style="margin-top:6px;color:var(--mu);font-size:10px">Versione app: ${APP_VER}</div>${rSyncBox()}`;
 }
-async function expData(){
-  const data={version:3,exportDate:new Date().toISOString(),
+function datiBackup(){
+  return{version:3,exportDate:new Date().toISOString(),
     rt_hist:hist,rt_ricaz:ricAz,rt_bimarch:bimArch,
     rt_boll:bollRef,rt_boll_casa:LS.get('rt_boll_casa',null),
     rt_boll_arch:LS.get('rt_boll_arch',[]),
@@ -2909,7 +2919,9 @@ async function expData(){
     rt_luo_casa:luoCasa,rt_luo_lav:luoLav,
     rt_cycle:cycle
   };
-  const json=JSON.stringify(data,null,2);
+}
+async function expData(){
+  const json=JSON.stringify(datiBackup(),null,2);
   const nome='rangertrack_backup_'+td()+'.json';
   const markDone=()=>{LS.set('rt_last_bk',new Date().toLocaleDateString('it-IT'));LS.set('rt_last_bk_ts',Date.now());logEv('backup','Backup esportato: '+nome);fillBkSum()};
   const cap=window.Capacitor;
@@ -2943,35 +2955,39 @@ async function expData(){
   URL.revokeObjectURL(url);
   markDone();showToast('✓ Backup salvato!',true);
 }
+// scrive nei dati locali il contenuto di un backup (file importato o copia automatica in iCloud)
+function applicaBackup(data){
+  if(!data||!data.version)throw new Error('File non valido');
+  if(data.rt_hist){hist=data.rt_hist;LS.set('rt_hist',hist)}
+  if(data.rt_ricaz){ricAz=data.rt_ricaz;LS.set('rt_ricaz',ricAz)}
+  if(data.rt_bimarch){bimArch=data.rt_bimarch;LS.set('rt_bimarch',bimArch)}
+  if(data.rt_boll){bollRef=data.rt_boll;LS.set('rt_boll',bollRef)}
+  if(data.rt_kwh!==undefined){costoKwh=data.rt_kwh;LS.set('rt_kwh',costoKwh)}
+  if(data.rt_kwh_casa!==undefined)LS.set('rt_kwh_casa',data.rt_kwh_casa);
+  if(data.rt_luo_casa!==undefined){luoCasa=data.rt_luo_casa;LS.set('rt_luo_casa',luoCasa)}
+  if(data.rt_luo_lav!==undefined){luoLav=data.rt_luo_lav;LS.set('rt_luo_lav',luoLav)}
+  if(data.rt_coeff_bim!==undefined)LS.set('rt_coeff_bim',data.rt_coeff_bim);
+  if(data.rt_boll_bim!==undefined)LS.set('rt_boll_bim',data.rt_boll_bim);
+  if(data.rt_kwh_from!==undefined)LS.set('rt_kwh_from',data.rt_kwh_from);
+  ['rt_coeff_casa_bim','rt_boll_casa_bim','rt_kwh_casa_from'].forEach(k=>{if(data[k]!==undefined)LS.set(k,data[k])});
+  if(Array.isArray(data.rt_docs)){documenti=data.rt_docs;LS.set('rt_docs',documenti)}
+  if(Array.isArray(data.rt_riccasa)){ricCasaL=data.rt_riccasa;LS.set('rt_riccasa',ricCasaL)}
+  if(Array.isArray(data.rt_log)){registro=data.rt_log;LS.set('rt_log',registro)}
+  if(data.rt_boll_casa)LS.set('rt_boll_casa',data.rt_boll_casa);
+  if(data.rt_boll_arch)LS.set('rt_boll_arch',data.rt_boll_arch);
+  if(data.rt_cycle){cycle=data.rt_cycle;LS.set('rt_cycle',cycle)}
+  // compatibilita con versioni precedenti
+  if(data.rt_history_v2&&!data.rt_hist){hist=data.rt_history_v2;LS.set('rt_hist',hist)}
+  if(data.rt_ricariche_az&&!data.rt_ricaz){ricAz=data.rt_ricariche_az;LS.set('rt_ricaz',ricAz)}
+  if(data.rt_bimestri_archivio&&!data.rt_bimarch){bimArch=data.rt_bimestri_archivio;LS.set('rt_bimarch',bimArch)}
+}
 function impData(file){
   const reader=new FileReader();
   reader.onload=e=>{
     try{
       const data=JSON.parse(e.target.result);
-      if(!data.version)throw new Error('File non valido');
-      if(data.rt_hist){hist=data.rt_hist;LS.set('rt_hist',hist)}
-      if(data.rt_ricaz){ricAz=data.rt_ricaz;LS.set('rt_ricaz',ricAz)}
-      if(data.rt_bimarch){bimArch=data.rt_bimarch;LS.set('rt_bimarch',bimArch)}
-      if(data.rt_boll){bollRef=data.rt_boll;LS.set('rt_boll',bollRef)}
-      if(data.rt_kwh!==undefined){costoKwh=data.rt_kwh;LS.set('rt_kwh',costoKwh)}
-      if(data.rt_kwh_casa!==undefined)LS.set('rt_kwh_casa',data.rt_kwh_casa);
-      if(data.rt_luo_casa!==undefined){luoCasa=data.rt_luo_casa;LS.set('rt_luo_casa',luoCasa)}
-      if(data.rt_luo_lav!==undefined){luoLav=data.rt_luo_lav;LS.set('rt_luo_lav',luoLav)}
-      if(data.rt_coeff_bim!==undefined)LS.set('rt_coeff_bim',data.rt_coeff_bim);
-      if(data.rt_boll_bim!==undefined)LS.set('rt_boll_bim',data.rt_boll_bim);
-      if(data.rt_kwh_from!==undefined)LS.set('rt_kwh_from',data.rt_kwh_from);
-      ['rt_coeff_casa_bim','rt_boll_casa_bim','rt_kwh_casa_from'].forEach(k=>{if(data[k]!==undefined)LS.set(k,data[k])});
-      if(Array.isArray(data.rt_docs)){documenti=data.rt_docs;LS.set('rt_docs',documenti)}
-      if(Array.isArray(data.rt_riccasa)){ricCasaL=data.rt_riccasa;LS.set('rt_riccasa',ricCasaL)}
-      if(Array.isArray(data.rt_log)){registro=data.rt_log;LS.set('rt_log',registro)}
+      applicaBackup(data);
       logEv('backup','Backup importato ('+(data.exportDate?fdt(data.exportDate):'data sconosciuta')+')');
-      if(data.rt_boll_casa)LS.set('rt_boll_casa',data.rt_boll_casa);
-      if(data.rt_boll_arch)LS.set('rt_boll_arch',data.rt_boll_arch);
-      if(data.rt_cycle){cycle=data.rt_cycle;LS.set('rt_cycle',cycle)}
-      // compatibilita con versioni precedenti
-      if(data.rt_history_v2&&!data.rt_hist){hist=data.rt_history_v2;LS.set('rt_hist',hist)}
-      if(data.rt_ricariche_az&&!data.rt_ricaz){ricAz=data.rt_ricariche_az;LS.set('rt_ricaz',ricAz)}
-      if(data.rt_bimestri_archivio&&!data.rt_bimarch){bimArch=data.rt_bimestri_archivio;LS.set('rt_bimarch',bimArch)}
       const res=document.getElementById('imp-res');
       if(res)res.innerHTML=`<div style="color:var(--g);padding:8px;background:rgba(34,197,94,.08);border-radius:6px;font-size:12px">
         ✓ Importazione completata!<br/>${hist.length} cicli · ${ricAz.length} ricariche az.</div>`;
@@ -2982,6 +2998,73 @@ function impData(file){
     }
   };
   reader.readAsText(file);
+}
+
+// ── BACKUP AUTOMATICI IN iCLOUD (app iPhone/iPad) ──
+// Una copia completa ogni 7 giorni in iCloud Drive › RangerTrack (visibile nell'app File); per ogni
+// dispositivo restano le ultime 8. Al contrario della sincronizzazione, sono copie FERME: se un dato
+// si perde o si rovina, si torna a una copia di prima.
+const BK_AUTO_GIORNI=7,BK_AUTO_TIENI=8;
+let bkAutoInCorso=false;
+function bkGruppo(){const d=syncDispositivo();return'_'+String(d.nome||'Dispositivo').replace(/[^A-Za-z0-9]/g,'')+'-'+String(d.id).slice(0,4)+'.json'}
+function bkNome(extra){const t=new Date();return'RangerTrack_backup_'+td()+'_'+String(t.getHours()).padStart(2,'0')+String(t.getMinutes()).padStart(2,'0')+(extra||'')+bkGruppo()}
+async function backupAutomatico(forza,extra){
+  const P=syncPlugin();
+  if(!P||bkAutoInCorso||!hasData())return false;
+  if(!forza&&Date.now()-LS.get('rt_bk_auto_ts',0)<BK_AUTO_GIORNI*86400000)return false;
+  bkAutoInCorso=true;
+  try{
+    const st=await P.status();if(!st.available)return false;
+    const nome=bkNome(extra);
+    await P.writeBackup({name:nome,data:JSON.stringify(datiBackup(),null,1),keep:BK_AUTO_TIENI,gruppo:(extra||'')+bkGruppo()});
+    if(!extra){LS.set('rt_bk_auto_ts',Date.now());LS.set('rt_last_bk_ts',Date.now());LS.set('rt_last_bk',new Date().toLocaleDateString('it-IT'))}
+    logEv('backup',(forza?'Backup in iCloud: ':'Backup automatico in iCloud: ')+nome);
+    document.getElementById('bk-reminder')?.remove(); // il promemoria non serve più
+    if(document.getElementById('mo-backup')?.style.display==='flex')fillBkSum();
+    return true;
+  }catch(e){console.error('backup automatico',e);if(forza)showToast('Errore backup iCloud: '+(e.message||e),false,true);return false}
+  finally{bkAutoInCorso=false}
+}
+async function backupOra(){if(await backupAutomatico(true)){showToast('☁️ Copia salvata in iCloud Drive › RangerTrack',true);apriCopieCloud()}}
+function avviaBackupAutomatico(){
+  if(!syncPlugin())return;
+  setTimeout(()=>backupAutomatico(),15000); // dopo la prima sincronizzazione: la copia contiene i dati uniti
+  document.addEventListener('visibilitychange',()=>{if(document.visibilityState==='visible')setTimeout(()=>backupAutomatico(),15000)});
+}
+async function apriCopieCloud(){
+  const el=document.getElementById('bkc-body');if(!el)return;
+  openMo('mo-bkcloud');
+  el.innerHTML='<div class="ld" style="display:flex"><div class="sp"></div> Leggo le copie in iCloud...</div>';
+  try{
+    const r=await syncPlugin().listBackups();
+    const L=(r&&r.backups)||[];
+    if(!L.length){el.innerHTML='<div class="empty">Nessuna copia ancora.<br/>La prima viene salvata in automatico,<br/>oppure tocca «Salva una copia ora».</div>';return}
+    const mio=bkGruppo();
+    el.innerHTML=`<div class="info">Copie complete dei dati in iCloud Drive › RangerTrack (le vedi anche nell'app File). Ripristinare una copia sostituisce i dati attuali su tutti i dispositivi sincronizzati.</div>`+
+      L.map(b=>{
+        const m=/^RangerTrack_backup_(\d{4}-\d{2}-\d{2})_(\d{2})(\d{2})(.*?)_([A-Za-z0-9]+)-[a-z0-9]{1,4}\.json$/.exec(b.name);
+        const quando=m?fd(m[1])+' '+m[2]+':'+m[3]:fdt(new Date(b.ts).toISOString());
+        const chi=m?(m[5]+(b.name.endsWith(mio)?' (questo)':'')):'';
+        const nota=m&&m[4]?' · copia di sicurezza prima di un ripristino':'';
+        return`<div style="display:flex;align-items:center;gap:10px;padding:10px 12px;background:var(--bg2);border:1px solid var(--bd);border-radius:6px;margin-bottom:6px;font-size:12px">
+          <span style="font-size:18px">🗂️</span><div style="flex:1"><div>${es(quando)}</div><div style="font-size:10px;color:var(--mu)">${es(chi)}${nota}${b.scaricato?'':' · in download da iCloud'}</div></div>
+          <button class="btn bgh bsm" onclick="ripristinaCopia('${es(b.name)}')">↩️ Ripristina</button></div>`}).join('');
+  }catch(e){el.innerHTML=`<div style="color:var(--r);font-size:12px">Errore: ${es(e.message||String(e))}</div>`}
+}
+async function ripristinaCopia(nome){
+  const P=syncPlugin();if(!P)return;
+  let data;
+  try{const r=await P.readBackup({name:nome});data=JSON.parse(r.data);if(!data.version)throw new Error('copia non valida')}
+  catch(e){showToast('Impossibile leggere la copia: '+(e.message||e),false,true);return}
+  const quando=data.exportDate?fdt(data.exportDate):nome;
+  askConfirm(`Ripristinare la copia del ${quando}? (${(data.rt_hist||[]).length} cicli, ${(data.rt_bimarch||[]).length} bimestri)\nI dati attuali vengono sostituiti anche sugli altri dispositivi. Prima salvo una copia di sicurezza dei dati di adesso.`,async()=>{
+    await backupAutomatico(true,'_prima-del-ripristino');
+    try{applicaBackup(data)}catch(e){showToast('Errore: '+e.message,false,true);return}
+    logEv('backup','Ripristinata la copia iCloud del '+quando);
+    closeMo('mo-bkcloud');closeMo('mo-backup');
+    showToast('✓ Copia ripristinata, ricarico...',true);
+    setTimeout(()=>location.reload(),3500); // tempo per pubblicare i dati ripristinati agli altri dispositivi
+  });
 }
 
 // ══════════════════════════════════════════════════════════════════════════════
@@ -3040,7 +3123,7 @@ const preloadPronto=(async function(){
 
 sw('ciclo');
 updateAiPill();
-preloadPronto.finally(avviaSync);
+preloadPronto.finally(()=>{avviaSync();avviaBackupAutomatico()});
 siriAvvia();
 
 // iOS install hint

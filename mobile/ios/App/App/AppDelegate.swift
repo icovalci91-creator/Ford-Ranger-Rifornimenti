@@ -112,18 +112,67 @@ public class CloudSyncPlugin: CAPPlugin, CAPBridgedPlugin {
     public let pluginMethods: [CAPPluginMethod] = [
         CAPPluginMethod(name: "status", returnType: CAPPluginReturnPromise),
         CAPPluginMethod(name: "writeOwn", returnType: CAPPluginReturnPromise),
-        CAPPluginMethod(name: "readAll", returnType: CAPPluginReturnPromise)
+        CAPPluginMethod(name: "readAll", returnType: CAPPluginReturnPromise),
+        CAPPluginMethod(name: "writeBackup", returnType: CAPPluginReturnPromise),
+        CAPPluginMethod(name: "listBackups", returnType: CAPPluginReturnPromise),
+        CAPPluginMethod(name: "readBackup", returnType: CAPPluginReturnPromise)
     ]
     // le chiamate a iCloud possono bloccare: mai sul thread principale
     private let coda = DispatchQueue(label: "app.rangertrack.cloudsync")
 
-    /// Cartella Documents del contenitore iCloud (nil se iCloud non è attivo o la capability manca)
+    /// Cartella dei file di sincronizzazione nel contenitore iCloud (nil se iCloud non è attivo o la capability manca).
+    /// Sta FUORI da "Documents": Documents è visibile nell'app File (cartella "RangerTrack", solo per i backup),
+    /// i file di sincronizzazione no, così non si cancellano per sbaglio.
     private func cartella() -> URL? {
+        guard FileManager.default.ubiquityIdentityToken != nil,
+              let base = FileManager.default.url(forUbiquityContainerIdentifier: nil) else { return nil }
+        let dir = base.appendingPathComponent("Sync", isDirectory: true)
+        try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        return dir
+    }
+    /// Cartella dei backup automatici: iCloud Drive › RangerTrack (app File)
+    private func cartellaBackup() -> URL? {
         guard FileManager.default.ubiquityIdentityToken != nil,
               let base = FileManager.default.url(forUbiquityContainerIdentifier: nil) else { return nil }
         let dir = base.appendingPathComponent("Documents", isDirectory: true)
         try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
         return dir
+    }
+    private static let prefissoBackup = "RangerTrack_backup_"
+
+    private func scrivi(_ dati: Data, in url: URL) -> Error? {
+        var errCoord: NSError?
+        var errScrittura: Error?
+        NSFileCoordinator(filePresenter: nil).coordinate(writingItemAt: url, options: .forReplacing, error: &errCoord) { dest in
+            do { try dati.write(to: dest, options: .atomic) } catch { errScrittura = error }
+        }
+        return errCoord ?? errScrittura
+    }
+    private func leggi(_ url: URL) -> String? {
+        var errCoord: NSError?
+        var testo: String?
+        NSFileCoordinator(filePresenter: nil).coordinate(readingItemAt: url, options: [], error: &errCoord) { src in
+            testo = try? String(contentsOf: src, encoding: .utf8)
+        }
+        return testo
+    }
+    /// backup presenti: (nome vero, url, scaricato?, data)
+    private func elencoBackup(_ dir: URL) -> [(nome: String, url: URL, locale: Bool, data: Date)] {
+        let fm = FileManager.default
+        let voci = (try? fm.contentsOfDirectory(at: dir, includingPropertiesForKeys: [.contentModificationDateKey], options: [])) ?? []
+        var out: [(nome: String, url: URL, locale: Bool, data: Date)] = []
+        for url in voci {
+            var nome = url.lastPathComponent
+            var locale = true
+            // file non ancora scaricato da iCloud: ".NOME.icloud"
+            if nome.hasPrefix(".") && nome.hasSuffix(".icloud") {
+                nome = String(nome.dropFirst().dropLast(".icloud".count)); locale = false
+            }
+            guard nome.hasPrefix(CloudSyncPlugin.prefissoBackup), nome.hasSuffix(".json") else { continue }
+            let data = (try? url.resourceValues(forKeys: [.contentModificationDateKey]).contentModificationDate) ?? Date.distantPast
+            out.append((nome, dir.appendingPathComponent(nome), locale, data))
+        }
+        return out.sorted { $0.nome > $1.nome }
     }
 
     @objc func status(_ call: CAPPluginCall) {
@@ -143,13 +192,7 @@ public class CloudSyncPlugin: CAPPlugin, CAPBridgedPlugin {
         }
         coda.async {
             guard let dir = self.cartella() else { call.reject("iCloud non disponibile"); return }
-            let url = dir.appendingPathComponent(nome)
-            var errCoord: NSError?
-            var errScrittura: Error?
-            NSFileCoordinator(filePresenter: nil).coordinate(writingItemAt: url, options: .forReplacing, error: &errCoord) { dest in
-                do { try dati.write(to: dest, options: .atomic) } catch { errScrittura = error }
-            }
-            if let e = errCoord ?? errScrittura { call.reject(e.localizedDescription); return }
+            if let e = self.scrivi(dati, in: dir.appendingPathComponent(nome)) { call.reject(e.localizedDescription); return }
             call.resolve()
         }
     }
@@ -171,14 +214,65 @@ public class CloudSyncPlugin: CAPPlugin, CAPBridgedPlugin {
                     continue
                 }
                 guard nome.hasPrefix("rt-"), nome.hasSuffix(".json") else { continue }
-                var errCoord: NSError?
-                var testo: String?
-                NSFileCoordinator(filePresenter: nil).coordinate(readingItemAt: url, options: [], error: &errCoord) { src in
-                    testo = try? String(contentsOf: src, encoding: .utf8)
-                }
-                if let t = testo { files.append(["name": nome, "data": t]) }
+                if let t = self.leggi(url) { files.append(["name": nome, "data": t]) }
             }
             call.resolve(["files": files, "pending": inArrivo])
+        }
+    }
+
+    /// salva un backup e tiene solo gli ultimi `keep` dello stesso dispositivo (nomi che finiscono con `gruppo`)
+    @objc func writeBackup(_ call: CAPPluginCall) {
+        guard let nome = call.getString("name"), nome.hasPrefix(CloudSyncPlugin.prefissoBackup), nome.hasSuffix(".json"),
+              !nome.contains("/"), let testo = call.getString("data"), let dati = testo.data(using: .utf8) else {
+            call.reject("Parametri non validi"); return
+        }
+        let keep = max(1, call.getInt("keep") ?? 8)
+        let gruppo = call.getString("gruppo") ?? ".json"
+        coda.async {
+            guard let dir = self.cartellaBackup() else { call.reject("iCloud non disponibile"); return }
+            if let e = self.scrivi(dati, in: dir.appendingPathComponent(nome)) { call.reject(e.localizedDescription); return }
+            let miei = self.elencoBackup(dir).filter { $0.nome.hasSuffix(gruppo) }
+            var rimossi = 0
+            for vecchio in miei.dropFirst(keep) {
+                var errCoord: NSError?
+                NSFileCoordinator(filePresenter: nil).coordinate(writingItemAt: vecchio.url, options: .forDeleting, error: &errCoord) { u in
+                    if (try? FileManager.default.removeItem(at: u)) != nil { rimossi += 1 }
+                }
+            }
+            call.resolve(["rimossi": rimossi])
+        }
+    }
+
+    @objc func listBackups(_ call: CAPPluginCall) {
+        coda.async {
+            guard let dir = self.cartellaBackup() else { call.reject("iCloud non disponibile"); return }
+            let lista = self.elencoBackup(dir).map { b -> [String: Any] in
+                if !b.locale { try? FileManager.default.startDownloadingUbiquitousItem(at: b.url) }
+                return ["name": b.nome, "ts": b.data.timeIntervalSince1970 * 1000, "scaricato": b.locale]
+            }
+            call.resolve(["backups": lista])
+        }
+    }
+
+    /// legge un backup; se è ancora solo in iCloud lo scarica (attesa massima ~20 s)
+    @objc func readBackup(_ call: CAPPluginCall) {
+        guard let nome = call.getString("name"), nome.hasPrefix(CloudSyncPlugin.prefissoBackup), !nome.contains("/") else {
+            call.reject("Nome non valido"); return
+        }
+        coda.async {
+            guard let dir = self.cartellaBackup() else { call.reject("iCloud non disponibile"); return }
+            let url = dir.appendingPathComponent(nome)
+            let segnaposto = dir.appendingPathComponent("." + nome + ".icloud")
+            let fm = FileManager.default
+            if !fm.fileExists(atPath: url.path) {
+                try? fm.startDownloadingUbiquitousItem(at: url)
+                var attesa = 0
+                while !fm.fileExists(atPath: url.path) && fm.fileExists(atPath: segnaposto.path) && attesa < 40 {
+                    Thread.sleep(forTimeInterval: 0.5); attesa += 1
+                }
+            }
+            guard let testo = self.leggi(url) else { call.reject("Backup non ancora scaricato da iCloud, riprova tra poco"); return }
+            call.resolve(["data": testo])
         }
     }
 }

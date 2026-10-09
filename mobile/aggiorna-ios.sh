@@ -66,6 +66,11 @@ if [ -n "$ENT" ] && grep -q "CloudDocuments" "ios/App/$ENT" 2>/dev/null && grep 
 else
   echo "! Capability iCloud NON ancora attiva: la sincronizzazione resta spenta (vedi IOS_SETUP.md, sezione iPad)"
 fi
+if grep -q "func writeBackup" ios/App/App/AppDelegate.swift && grep -q "NSUbiquitousContainers" ios/App/App/Info.plist; then
+  echo "✓ Backup automatici in iCloud Drive › RangerTrack inclusi"
+else
+  echo "✗ Backup automatici MANCANTI: manda una foto di questo messaggio"; ok=0
+fi
 if grep -q "struct RangerScorciatoie: AppShortcutsProvider" ios/App/App/AppDelegate.swift; then
   echo "✓ Siri e Comandi rapidi inclusi (iOS minimo 16)"
 else

@@ -114,6 +114,15 @@ Come funziona:
 - vengono sincronizzate anche le impostazioni, compresa la chiave Gemini (resta nel tuo iCloud privato);
 - la versione web (Safari/PWA) non sincronizza: vale solo per l'app nativa.
 
+### Backup automatici in iCloud
+
+Con la capability iCloud attiva, l'app salva da sola **una copia completa dei dati ogni 7 giorni** in
+**iCloud Drive › RangerTrack** (visibile nell'app File) e tiene le ultime 8 di ogni dispositivo.
+Pannello 💾 → **Copie salvate** per vederle e ripristinarle (prima del ripristino viene salvata una copia
+di sicurezza dei dati di quel momento), **Salva una copia ora** per farne una subito.
+La cartella "RangerTrack" in iCloud Drive può comparire solo dopo la prima copia e un nuovo numero di Build.
+I file della sincronizzazione stanno in una cartella nascosta del contenitore (non in quella visibile).
+
 ## Siri e Comandi rapidi
 
 Non serve configurare niente in Xcode: le azioni sono nel codice (`AppDelegate.swift`) e iOS le trova da solo
