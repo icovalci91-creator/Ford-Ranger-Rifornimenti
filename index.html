@@ -8,7 +8,7 @@
 <meta name="apple-mobile-web-app-title" content="RangerTrack"/>
 <meta name="theme-color" content="#0f0f0f"/>
 <meta http-equiv="Cache-Control" content="no-cache,no-store,must-revalidate"/>
-<title>RangerTrack v2026.10.17-1</title>
+<title>RangerTrack v2026.10.17-2</title>
 <link rel="apple-touch-icon" href="/apple-touch-icon.png"/>
 <link rel="preconnect" href="https://fonts.googleapis.com"/>
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@400;700;900&family=Barlow:wght@400;500&display=swap"/>
@@ -406,7 +406,7 @@ hr{border:none;border-top:1px solid var(--bd);margin:14px 0}
 </div>
 
 <script>
-const APP_VER='2026.10.17-1';
+const APP_VER='2026.10.17-2';
 // ── STORAGE ──────────────────────────────────────────────────────────────────
 const LS={
   get:(k,d)=>{try{const v=localStorage.getItem(k);return v!==null?JSON.parse(v):d}catch{return d}},
@@ -1683,6 +1683,68 @@ function miniLinea(pts,o){
   g+=`<text x="${ML}" y="${H-5}" fill="${mu}" font-size="9">${pts[0].l}</text><text x="${W-MR}" y="${H-5}" fill="${mu}" font-size="9" text-anchor="end">${pts[pts.length-1].l}</text></svg>`;
   return`<div style="font-size:9px;letter-spacing:2px;text-transform:uppercase;color:var(--mu);margin:10px 0 2px">${o.titolo} <span style="letter-spacing:0;text-transform:none;color:var(--mu)">· media ${o.fmt(media)} (tratteggio)</span></div>${g}`;
 }
+// ── RAFFRONTO PER MESE / PER CICLO ──
+let stRaf='mese';
+function setStRaf(v){stRaf=v;render()}
+function aggrega(items){
+  const S=f=>items.reduce((t,x)=>t+f(x),0),ck=items.filter(x=>x.km>0),cc=items.filter(x=>x.cons!==null);
+  const km=ck.reduce((t,x)=>t+x.km,0),tot=S(x=>x.tot),kmT=cc.reduce((t,x)=>t+x.kmT,0);
+  return{n:items.length,tot,benz:S(x=>x.benz),casa:S(x=>x.casa),lav:S(x=>x.lav),km:S(x=>x.km),
+    ekm:km>0?ck.reduce((t,x)=>t+x.tot,0)/km:null,cons:kmT>0?cc.reduce((t,x)=>t+x.litri,0)/kmT*100:null,
+    quota:km>0?ck.reduce((t,x)=>t+x.kmel,0)/km*100:null};
+}
+// variazione rispetto al periodo precedente: verde se migliora, rosso se peggiora (mig: 'giu' meglio più basso, 'su' più alto)
+function dlt(v,prev,mig,pt){
+  if(v===null||prev===null||prev===undefined||(!pt&&!(prev>0)))return'';
+  const d=pt?v-prev:(v-prev)/prev*100;
+  if(Math.abs(d)<(pt?.5:.5))return'<span style="color:var(--mu)"> =</span>';
+  const buono=mig==='giu'?d<0:mig==='su'?d>0:null;
+  const col=buono===null?'var(--mu)':buono?'var(--g)':'var(--r)';
+  return`<span style="color:${col};font-size:10px"> ${d>0?'▲':'▼'}${Math.abs(d).toFixed(0)}${pt?' pt':'%'}</span>`;
+}
+function rRaffronto(T){
+  const mesi={};T.L.forEach(x=>(mesi[x.d.slice(0,7)]=mesi[x.d.slice(0,7)]||[]).push(x));
+  let righe;
+  if(stRaf==='mese')righe=Object.keys(mesi).sort().map(m=>({l:meseLbl(m,true).replace(/^./,c=>c.toUpperCase()),sub:plur(mesi[m].length,'ciclo','cicli'),a:aggrega(mesi[m])}));
+  else righe=T.L.map(x=>({l:fd(x.d).slice(0,5)+'/'+x.d.slice(2,4),sub:x.staz||'',a:aggrega([x])}));
+  righe=righe.slice(-12);
+  const th='padding:4px 3px;font-weight:600;text-align:right;color:var(--mu);font-size:9px;letter-spacing:1px;text-transform:uppercase';
+  const rows=righe.map((r,i)=>{const p=i>0?righe[i-1].a:null,a=r.a;
+    const c='padding:7px 3px;text-align:right;vertical-align:top;line-height:1.35';
+    return`<tr style="border-top:1px solid var(--bd)">
+      <td style="padding:7px 3px 7px 0;vertical-align:top"><strong>${es(r.l)}</strong><div style="font-size:9px;color:var(--mu);max-width:78px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${es(r.sub)}</div></td>
+      <td style="${c}">${eur(a.tot,0)}<br/>${dlt(a.tot,p&&p.tot,'giu')}</td>
+      <td style="${c}">${a.ekm!==null?fN(a.ekm,3):'—'}<br/>${dlt(a.ekm,p&&p.ekm,'giu')}</td>
+      <td style="${c}">${a.cons!==null?fN(a.cons,1):'—'}<br/>${dlt(a.cons,p&&p.cons,'giu')}</td>
+      <td style="${c}">${a.quota!==null?fN(a.quota,0)+'%':'—'}<br/>${dlt(a.quota,p&&p.quota,'su',true)}</td></tr>`}).join('');
+  const seg=(k,l)=>`<button class="${stRaf===k?'on':''}" onclick="setStRaf('${k}')">${l}</button>`;
+  return`<div style="display:flex;align-items:center;justify-content:space-between;gap:8px;margin:16px 0 6px;flex-wrap:wrap">
+    <div style="font-size:9px;letter-spacing:2px;text-transform:uppercase;color:var(--mu)">Raffronto</div>
+    <div class="seg seg-st" style="margin:0">${seg('mese','Per mese')}${seg('ciclo','Per ciclo')}</div></div>
+    <div style="overflow-x:auto"><table style="width:100%;border-collapse:collapse;font-size:12px">
+      <tr><th style="${th};text-align:left;padding-left:0">${stRaf==='mese'?'Mese':'Rifornimento'}</th><th style="${th}">Spesa</th><th style="${th}">€/km</th><th style="${th}">L/100</th><th style="${th}">Elettr.</th></tr>${rows}</table></div>
+    <div style="font-size:10px;color:var(--mu);margin-top:4px">Freccia = variazione rispetto ${stRaf==='mese'?'al mese':'al ciclo'} precedente · <span style="color:var(--g)">verde</span> = migliora, <span style="color:var(--r)">rosso</span> = peggiora</div>`;
+}
+// due serie sullo stesso grafico (costo al km elettrico vs benzina)
+function duoLinee(a,b,o){
+  const V=[...a,...b].filter(p=>p.v!==null);if(a.filter(p=>p.v!==null).length<2||b.filter(p=>p.v!==null).length<2)return'<div style="font-size:11px;color:var(--mu);padding:8px 0">Servono almeno 2 cicli con km elettrici e a benzina.</div>';
+  const W=340,H=130,ML=36,MR=10,MT=14,MB=20,pw=W-ML-MR,ph=H-MT-MB,mu='#555',grid='#2a2a2a';
+  const lo=Math.min(...V.map(p=>p.v)),hi=Math.max(...V.map(p=>p.v)),span=(hi-lo)||hi*.1||1,min=Math.max(0,lo-span*.4),max=hi+span*.4;
+  const N=a.length,x=i=>ML+pw*(N===1?.5:i/(N-1)),y=v=>MT+ph-ph*(v-min)/(max-min);
+  let g=`<svg viewBox="0 0 ${W} ${H}" style="width:100%;height:auto;display:block" role="img" aria-label="${o.titolo}">`;
+  [0,.5,1].forEach(f=>{const yy=MT+ph-ph*f;g+=`<line x1="${ML}" x2="${W-MR}" y1="${yy}" y2="${yy}" stroke="${grid}"/><text x="${ML-6}" y="${yy+3}" fill="${mu}" font-size="9" text-anchor="end">${fN(min+(max-min)*f,2)}</text>`});
+  [[a,o.colA],[b,o.colB]].forEach(([pts,col])=>{
+    let d='',pen=false;pts.forEach((p,i)=>{if(p.v===null){pen=false;return}d+=(pen?'L':'M')+x(i).toFixed(1)+','+y(p.v).toFixed(1);pen=true});
+    g+=`<path d="${d}" fill="none" stroke="${col}" stroke-width="2" stroke-linejoin="round"/>`;
+    pts.forEach((p,i)=>{if(p.v!==null)g+=`<circle cx="${x(i).toFixed(1)}" cy="${y(p.v).toFixed(1)}" r="3" fill="${col}" stroke="#181818" stroke-width="1.5"/>`});
+    const u=pts.map((p,i)=>({p,i})).filter(q=>q.p.v!==null).pop();
+    g+=`<text x="${Math.min(x(u.i),W-MR-14)}" y="${y(u.p.v)-8}" fill="${col}" font-size="10" font-weight="700" text-anchor="middle">${fN(u.p.v,3)}</text>`;
+  });
+  g+=`<text x="${ML}" y="${H-5}" fill="${mu}" font-size="9">${a[0].l}</text><text x="${W-MR}" y="${H-5}" fill="${mu}" font-size="9" text-anchor="end">${a[a.length-1].l}</text></svg>`;
+  const sw=c=>`<span style="display:inline-block;width:10px;height:10px;border-radius:2px;background:${c};margin-right:5px;vertical-align:-1px"></span>`;
+  return`<div style="font-size:9px;letter-spacing:2px;text-transform:uppercase;color:var(--mu);margin:10px 0 4px">${o.titolo}</div>
+    <div style="display:flex;gap:14px;font-size:11px;margin-bottom:2px">${sw(o.colA)}${o.lA}${sw(o.colB)}${o.lB}</div>${g}`;
+}
 function rStatistiche(){
   if(hist.length<1)return'';
   const T=statDati(),per=(k,l)=>`<button class="${stPer===k?'on':''}" onclick="setStPer('${k}')">${l}</button>`;
@@ -1728,10 +1790,17 @@ function rStatistiche(){
     ${rec('💸','Ciclo più caro',T.peggiore,'€ '+fN(T.peggiore&&T.peggiore.ekm,3)+'/km')}
     ${rec('⛽','Consumo migliore',T.consMigl,fN(T.consMigl&&T.consMigl.cons,1)+' L/100km')}
     ${T.staz.length?riga('📍 Stazioni più usate',T.staz.map(x=>`${es(x.nome)} (${x.n}${x.lt>0?' · € '+fN(x.eur/x.lt,3)+'/L':''})`).join('<br/>')):''}`;
+  h+=rRaffronto(T);
   // andamenti per ciclo
   const lbl=x=>fd(x.d).slice(0,5);
   h+=miniLinea(T.L.map(x=>({v:x.cons,l:lbl(x)})),{titolo:'Consumo benzina (L/100 km)',fmt:v=>fN(v,1),ax:v=>fN(v,1),col:GC.benz});
   h+=miniLinea(T.L.map(x=>({v:x.quota!==null?x.quota*100:null,l:lbl(x)})),{titolo:'Km in elettrico (%)',fmt:v=>fN(v,0)+'%',col:GC.lav,max:100});
+  // costo reale al km: energia (casa + lavoro) sui km elettrici contro benzina sui km a motore termico
+  const elKm=T.L.map(x=>({v:x.kmel>=20&&x.casa+x.lav>0?(x.casa+x.lav)/x.kmel:null,l:lbl(x)})),bzKm=T.L.map(x=>({v:x.kmT>=30&&x.benz>0?x.benz/x.kmT:null,l:lbl(x)}));
+  h+=duoLinee(elKm,bzKm,{titolo:'Costo al km: elettrico vs benzina (€/km)',colA:GC.lav,lA:'Elettrico',colB:GC.benz,lB:'Benzina'});
+  {const e=elKm.filter(p=>p.v!==null),b=bzKm.filter(p=>p.v!==null);
+   if(e.length&&b.length){const me=e.reduce((t,p)=>t+p.v,0)/e.length,mb=b.reduce((t,p)=>t+p.v,0)/b.length;
+     h+=`<div style="font-size:11px;color:var(--mu);margin-top:4px">In media un km elettrico costa <strong style="color:var(--tx)">€ ${fN(me,3)}</strong> contro <strong style="color:var(--tx)">€ ${fN(mb,3)}</strong> a benzina: ${me<mb?`<span style="color:var(--g)">${fN((1-me/mb)*100,0)}% in meno</span>`:`<span style="color:var(--r)">${fN((me/mb-1)*100,0)}% in più</span>`}.</div>`}}
   h+=miniLinea(T.L.map(x=>({v:x.prezzo>0?x.prezzo:null,l:lbl(x)})),{titolo:'Prezzo benzina (€/L)',fmt:v=>fN(v,3),ax:v=>fN(v,2),col:'#a78bfa'});
   return h+'</div>';
 }
