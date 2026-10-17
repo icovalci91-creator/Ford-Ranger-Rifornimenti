@@ -8,7 +8,7 @@
 <meta name="apple-mobile-web-app-title" content="RangerTrack"/>
 <meta name="theme-color" content="#0f0f0f"/>
 <meta http-equiv="Cache-Control" content="no-cache,no-store,must-revalidate"/>
-<title>RangerTrack v2026.10.09-1</title>
+<title>RangerTrack v2026.10.17-1</title>
 <link rel="apple-touch-icon" href="/apple-touch-icon.png"/>
 <link rel="preconnect" href="https://fonts.googleapis.com"/>
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@400;700;900&family=Barlow:wght@400;500&display=swap"/>
@@ -115,6 +115,7 @@ html,body{height:100%;background:var(--bg);color:var(--tx);font-family:'Barlow',
 @keyframes spin{to{transform:rotate(360deg)}}
 
 /* STATS */
+.seg-st button{white-space:nowrap;padding:8px 10px!important;font-size:11px!important;letter-spacing:1px!important}
 .sg4{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:12px}
 .sc{background:var(--bg2);border:1px solid var(--bd);border-radius:8px;padding:16px}
 .slbl{font-size:9px;letter-spacing:2px;text-transform:uppercase;color:var(--mu);margin-bottom:6px}
@@ -405,7 +406,7 @@ hr{border:none;border-top:1px solid var(--bd);margin:14px 0}
 </div>
 
 <script>
-const APP_VER='2026.10.09-1';
+const APP_VER='2026.10.17-1';
 // ── STORAGE ──────────────────────────────────────────────────────────────────
 const LS={
   get:(k,d)=>{try{const v=localStorage.getItem(k);return v!==null?JSON.parse(v):d}catch{return d}},
@@ -1623,6 +1624,117 @@ function rRegistro(){
   });
   return h;
 }
+// ── STATISTICHE DETTAGLIATE (Storico › Cicli) ──
+let stPer='tutto';
+function setStPer(p){stPer=p;render()}
+const fN=(v,d=1)=>n(v).toFixed(d).replace('.',',');
+function statDati(){
+  const oggi=td(),anno=oggi.slice(0,4);
+  const t=new Date(oggi+'T12:00:00');t.setFullYear(t.getFullYear()-1);const da12=isoLocale(t);
+  let L=hist.filter(h=>normData(h.data));
+  if(stPer==='12m')L=L.filter(h=>normData(h.data)>da12);
+  else if(stPer==='anno')L=L.filter(h=>normData(h.data).startsWith(anno));
+  L=L.slice().sort((a,b)=>normData(a.data)>normData(b.data)?1:-1).map(h=>{
+    const d=normData(h.data),km=n(h.km),kmel=n(h.kmel),kmT=Math.max(0,km-kmel),litri=n(h.litri),benz=n(h.costoBenz);
+    const casa=n(h.costoEC)||r2(n(h.kwhCasa)*(n(h.costoKwhCasa)||coeffCasaForBim(bimKey(d)))),lav=n(h.rimborso),tot=benz+casa+lav;
+    return{d,staz:String(h.staz||'').trim(),km,kmel,kmT,litri,benz,casa,lav,tot,kwhC:n(h.kwhCasa),kwhL:n(h.kwhLav),
+      prezzo:n(h.prezzo)||(litri>0?benz/litri:0),
+      ekm:km>0?tot/km:null,cons:(kmT>=30&&litri>0)?litri/kmT*100:null,quota:km>0?kmel/km:null};
+  });
+  const S=f=>L.reduce((t,x)=>t+f(x),0);
+  const conKm=L.filter(x=>x.km>0),conCons=L.filter(x=>x.cons!==null);
+  const km=S(x=>x.km),kmEl=S(x=>x.kmel),benz=S(x=>x.benz),casa=S(x=>x.casa),lav=S(x=>x.lav),litri=S(x=>x.litri);
+  const mesi=L.length?Math.max(1,(new Date(L[L.length-1].d).getFullYear()-new Date(L[0].d).getFullYear())*12+new Date(L[L.length-1].d).getMonth()-new Date(L[0].d).getMonth()+1):1;
+  const gg=[];for(let i=1;i<L.length;i++)gg.push((new Date(L[i].d)-new Date(L[i-1].d))/86400000);
+  const kmCons=conCons.reduce((t,x)=>t+x.kmT,0),litriCons=conCons.reduce((t,x)=>t+x.litri,0);
+  const cons=kmCons>0?litriCons/kmCons*100:null;
+  const prezzo=litri>0?benz/litri:null;
+  const kmTot=conKm.reduce((t,x)=>t+x.km,0),totKm=conKm.reduce((t,x)=>t+x.tot,0),nettoKm=conKm.reduce((t,x)=>t+x.benz+x.casa,0);
+  const kmElKm=conKm.reduce((t,x)=>t+x.kmel,0);
+  // se i km elettrici fossero fatti a benzina (al consumo medio e prezzo medio del periodo)
+  const eqBenz=(cons&&prezzo)?kmElKm*cons/100*prezzo:null,energia=casa+lav;
+  const staz={};L.forEach(x=>{if(!x.staz)return;const k=x.staz.toLowerCase(),e=staz[k]=staz[k]||{nome:x.staz,n:0,eur:0,lt:0};e.n++;e.eur+=x.benz;e.lt+=x.litri});
+  const ord=a=>a.slice().sort((x,y)=>x.ekm-y.ekm);
+  const sEkm=ord(conKm);
+  return{L,nC:L.length,km,kmEl,benz,casa,lav,tot:benz+casa+lav,litri,mesi,
+    ggMedi:gg.length?gg.reduce((a,b)=>a+b,0)/gg.length:null,cons,prezzo,
+    ekm:kmTot>0?totKm/kmTot:null,ekmNetto:kmTot>0?nettoKm/kmTot:null,quota:kmTot>0?kmElKm/kmTot:null,
+    kwhC:S(x=>x.kwhC),kwhL:S(x=>x.kwhL),eqBenz,energia,
+    migliore:sEkm[0]||null,peggiore:sEkm.length>1?sEkm[sEkm.length-1]:null,
+    consMigl:conCons.length?conCons.reduce((a,b)=>a.cons<b.cons?a:b):null,
+    staz:Object.values(staz).sort((a,b)=>b.n-a.n||b.lt-a.lt).slice(0,3)};
+}
+function miniLinea(pts,o){
+  const V=pts.filter(p=>p.v!==null);if(V.length<2)return'<div style="font-size:11px;color:var(--mu);padding:8px 0">Servono almeno 2 cicli con questo dato.</div>';
+  const W=340,H=118,ML=36,MR=10,MT=16,MB=20,pw=W-ML-MR,ph=H-MT-MB,ink='#deded6',mu='#555',grid='#2a2a2a';
+  // asse ingrandito sul tratto dei dati (0-100 fisso per le percentuali)
+  const lo=Math.min(...V.map(p=>p.v)),hi=Math.max(...V.map(p=>p.v)),span=(hi-lo)||hi*.1||1;
+  const min=o.max?0:Math.max(0,lo-span*.7),max=o.max||hi+span*.7;
+  const x=i=>ML+pw*(pts.length===1?.5:i/(pts.length-1)),y=v=>MT+ph-ph*(v-min)/(max-min);
+  const media=V.reduce((t,p)=>t+p.v,0)/V.length;
+  let g=`<svg viewBox="0 0 ${W} ${H}" style="width:100%;height:auto;display:block" role="img" aria-label="${o.titolo}">`;
+  [0,.5,1].forEach(f=>{const yy=MT+ph-ph*f;g+=`<line x1="${ML}" x2="${W-MR}" y1="${yy}" y2="${yy}" stroke="${grid}"/><text x="${ML-6}" y="${yy+3}" fill="${mu}" font-size="9" text-anchor="end">${(o.ax||o.fmt)(min+(max-min)*f)}</text>`});
+  g+=`<line x1="${ML}" x2="${W-MR}" y1="${y(media)}" y2="${y(media)}" stroke="${o.col}" stroke-opacity=".5" stroke-dasharray="4 3"/>`;
+  let d='',pen=false;pts.forEach((p,i)=>{if(p.v===null){pen=false;return}d+=(pen?'L':'M')+x(i).toFixed(1)+','+y(p.v).toFixed(1);pen=true});
+  g+=`<path d="${d}" fill="none" stroke="${o.col}" stroke-width="2" stroke-linejoin="round"/>`;
+  pts.forEach((p,i)=>{if(p.v!==null)g+=`<circle cx="${x(i).toFixed(1)}" cy="${y(p.v).toFixed(1)}" r="3.2" fill="${o.col}" stroke="#181818" stroke-width="1.5"/>`});
+  const ult=pts.map((p,i)=>({p,i})).filter(a=>a.p.v!==null).pop();
+  g+=`<text x="${Math.min(x(ult.i),W-MR-14)}" y="${y(ult.p.v)-8}" fill="${ink}" font-size="10" font-weight="700" text-anchor="middle">${o.fmt(ult.p.v)}</text>`;
+  g+=`<text x="${ML}" y="${H-5}" fill="${mu}" font-size="9">${pts[0].l}</text><text x="${W-MR}" y="${H-5}" fill="${mu}" font-size="9" text-anchor="end">${pts[pts.length-1].l}</text></svg>`;
+  return`<div style="font-size:9px;letter-spacing:2px;text-transform:uppercase;color:var(--mu);margin:10px 0 2px">${o.titolo} <span style="letter-spacing:0;text-transform:none;color:var(--mu)">· media ${o.fmt(media)} (tratteggio)</span></div>${g}`;
+}
+function rStatistiche(){
+  if(hist.length<1)return'';
+  const T=statDati(),per=(k,l)=>`<button class="${stPer===k?'on':''}" onclick="setStPer('${k}')">${l}</button>`;
+  const tile=(lbl,val,sub,col)=>`<div style="background:var(--bg3);border-radius:8px;padding:11px 12px;min-width:0">
+    <div style="font-size:9px;letter-spacing:1.5px;text-transform:uppercase;color:var(--mu);margin-bottom:5px">${lbl}</div>
+    <div style="font-family:'Barlow Condensed',sans-serif;font-size:28px;font-weight:900;line-height:1;color:${col||'var(--tx)'}">${val}</div>
+    <div style="font-size:10px;color:var(--mu);margin-top:4px">${sub||'&nbsp;'}</div></div>`;
+  const riga=(a,b,col)=>`<div style="display:flex;justify-content:space-between;gap:10px;padding:5px 0;border-top:1px solid var(--bd);font-size:12px"><span style="color:var(--mu)">${a}</span><span style="text-align:right;${col?'color:'+col:''}">${b}</span></div>`;
+  // rimborsi aziendali (bimestri chiusi)
+  const incassato=bimArch.filter(b=>b.pagato).reduce((t,b)=>t+(b.pagatoImporto??arrot(b.totImp)),0),NP=totaleNonPagato(0);
+  const kwhTot=T.kwhC+T.kwhL,pc=kwhTot>0?T.kwhC/kwhTot*100:0;
+  const rec=(ico,lbl,x,v)=>x?riga(`${ico} ${lbl}`,`<strong>${fd(x.d)}</strong> · ${v}`):'';
+  let h=`<div class="card" style="padding:14px 12px">
+    <div style="display:flex;align-items:center;justify-content:space-between;gap:8px;margin-bottom:10px;flex-wrap:wrap">
+      <div class="ctitle" style="margin:0">📈 Statistiche</div>
+      <div class="seg seg-st" style="margin:0">${per('tutto','Tutto')}${per('12m','12 mesi')}${per('anno','Quest\'anno')}</div></div>`;
+  if(!T.nC)return h+'<div class="empty">Nessun ciclo in questo periodo.</div></div>';
+  h+=`<div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:12px">
+    ${tile('Costo per km',T.ekm!==null?'€ '+fN(T.ekm,3):'—',T.ekmNetto!==null?'a tuo carico € '+fN(T.ekmNetto,3)+'/km':'km non inseriti','var(--o)')}
+    ${tile('Km percorsi',Math.round(T.km).toLocaleString('it-IT'),T.nC?'media '+Math.round(T.km/T.nC)+' km a ciclo':'')}
+    ${tile('Consumo benzina',T.cons!==null?fN(T.cons,1)+' <span style="font-size:13px;font-weight:600">L/100km</span>':'—',T.prezzo?'prezzo medio € '+fN(T.prezzo,3)+'/L':'solo km a motore termico')}
+    ${tile('Km in elettrico',T.quota!==null?fN(T.quota*100,0)+'%':'—',Math.round(T.kmEl).toLocaleString('it-IT')+' km elettrici','var(--g)')}
+    ${tile('Spesa mensile','€ '+fN(T.tot/T.mesi,0),'a tuo carico € '+fN((T.benz+T.casa)/T.mesi,0)+' · '+T.mesi+(T.mesi===1?' mese':' mesi'))}
+    ${tile('Tra due pieni',T.ggMedi!==null?fN(T.ggMedi,0)+' <span style="font-size:13px;font-weight:600">giorni</span>':'—',plur(T.nC,'rifornimento','rifornimenti'))}
+  </div>`;
+  // da dove vengono i soldi
+  h+=`<div style="font-size:9px;letter-spacing:2px;text-transform:uppercase;color:var(--mu);margin:4px 0 4px">Costi nel periodo</div>
+    <div style="display:flex;height:10px;border-radius:5px;overflow:hidden;margin:6px 0 8px;background:var(--bg3)">${['benz','casa','lav'].map(k=>T.tot>0&&T[k]>0?`<div style="width:${T[k]/T.tot*100}%;background:${GC[k]}"></div>`:'').join('')}</div>
+    ${['benz','casa','lav'].map(k=>`<div style="display:flex;justify-content:space-between;font-size:12px;padding:2px 0"><span><span style="display:inline-block;width:10px;height:10px;border-radius:2px;background:${GC[k]};margin-right:6px"></span>${GL[k]}</span><span>${eur(T[k],2)} <span style="color:var(--mu);font-size:10px">${T.tot>0?fN(T[k]/T.tot*100,0)+'%':''}</span></span></div>`).join('')}
+    <div style="display:flex;justify-content:space-between;font-size:12px;font-weight:700;padding-top:5px;margin-top:3px;border-top:1px solid var(--bd)"><span>Totale</span><span>${eur(T.tot,2)}</span></div>
+    <div style="display:flex;justify-content:space-between;font-size:11px;color:var(--mu);padding-top:2px"><span>di cui a tuo carico (benzina + casa)</span><span>${eur(T.benz+T.casa,2)}</span></div>`;
+  // energia e rimborsi
+  h+=`<div style="font-size:9px;letter-spacing:2px;text-transform:uppercase;color:var(--mu);margin:16px 0 4px">Energia e rimborsi</div>
+    ${riga('🏠 Ricariche a casa',fN(T.kwhC,1)+' kWh'+(T.kwhC>0?' · € '+fN(T.casa/T.kwhC,3)+'/kWh':''),'var(--b)')}
+    ${riga('🏢 Ricariche al lavoro',fN(T.kwhL,1)+' kWh'+(T.kwhL>0?' · € '+fN(T.lav/T.kwhL,3)+'/kWh':''),'var(--g)')}
+    ${kwhTot>0?`<div style="display:flex;height:6px;border-radius:3px;overflow:hidden;margin:4px 0 2px;background:var(--bg3)"><div style="width:${pc}%;background:${GC.casa}"></div><div style="width:${100-pc}%;background:${GC.lav}"></div></div>`:''}
+    ${riga('💶 Rimborsi incassati (bimestri pagati)','<strong>'+eur(incassato,0)+'</strong>')}
+    ${riga('⏳ Da incassare (chiusi)','<strong>'+eur(NP.chiusi,0)+'</strong>',NP.chiusi?'var(--o)':'')}
+    ${T.eqBenz!==null&&T.energia>0?riga('⚡ Elettrico vs benzina',`<span title="">${eur(T.eqBenz,0)} a benzina → ${eur(T.energia,0)} di energia</span>`,'var(--g)')+`<div style="font-size:10px;color:var(--mu);text-align:right">stima: gli stessi km elettrici fatti a benzina, al consumo medio del periodo</div>`:''}`;
+  // record
+  h+=`<div style="font-size:9px;letter-spacing:2px;text-transform:uppercase;color:var(--mu);margin:16px 0 4px">Record</div>
+    ${rec('🏆','Ciclo più economico',T.migliore,'€ '+fN(T.migliore&&T.migliore.ekm,3)+'/km')}
+    ${rec('💸','Ciclo più caro',T.peggiore,'€ '+fN(T.peggiore&&T.peggiore.ekm,3)+'/km')}
+    ${rec('⛽','Consumo migliore',T.consMigl,fN(T.consMigl&&T.consMigl.cons,1)+' L/100km')}
+    ${T.staz.length?riga('📍 Stazioni più usate',T.staz.map(x=>`${es(x.nome)} (${x.n}${x.lt>0?' · € '+fN(x.eur/x.lt,3)+'/L':''})`).join('<br/>')):''}`;
+  // andamenti per ciclo
+  const lbl=x=>fd(x.d).slice(0,5);
+  h+=miniLinea(T.L.map(x=>({v:x.cons,l:lbl(x)})),{titolo:'Consumo benzina (L/100 km)',fmt:v=>fN(v,1),ax:v=>fN(v,1),col:GC.benz});
+  h+=miniLinea(T.L.map(x=>({v:x.quota!==null?x.quota*100:null,l:lbl(x)})),{titolo:'Km in elettrico (%)',fmt:v=>fN(v,0)+'%',col:GC.lav,max:100});
+  h+=miniLinea(T.L.map(x=>({v:x.prezzo>0?x.prezzo:null,l:lbl(x)})),{titolo:'Prezzo benzina (€/L)',fmt:v=>fN(v,3),ax:v=>fN(v,2),col:'#a78bfa'});
+  return h+'</div>';
+}
 function rStoricoCicli(){
   if(!hist.length)return`<div class="empty">Nessun ciclo salvato.<br/>Completa il primo ciclo nella tab Ciclo.</div>`;
   const totB=hist.reduce((s,h)=>s+n(h.costoBenz),0);
@@ -1641,6 +1753,7 @@ function rStoricoCicli(){
     <div style="font-family:'Barlow Condensed',sans-serif;font-size:32px;font-weight:900;color:var(--o)">€ ${totTot.toFixed(2)}</div></div>
     <div style="text-align:right;font-size:11px;color:var(--mu)">⛽ € ${totB.toFixed(2)}<br/>🏠 € ${totEC.toFixed(2)}<br/>🏢 € ${totR.toFixed(2)}</div>
   </div>
+  ${rStatistiche()}
   ${rGrafici()}
   <button class="btn bo" style="margin-bottom:14px" onclick="openMo('mo-nrif')">➕ Aggiungi rifornimento mancante</button>`;
   const riepilogo=h;h='';
