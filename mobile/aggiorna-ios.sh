@@ -78,4 +78,8 @@ else
 fi
 echo "✓ Versione webapp: $(grep -o "APP_VER='[^']*'" www/index.html)"
 echo "==========================================="
-[ $ok = 1 ] && echo "Fatto. Ora: npx cap open ios → Product › Clean Build Folder → Build +1 → Archive (o Run)."
+if [ $ok = 1 ]; then
+  echo "Fatto. Ora apro Xcode: Product › Clean Build Folder → Build +1 → Archive (o Run)."
+  # apertura diretta del workspace: non dipende da npx/Capacitor CLI
+  open ios/App/App.xcworkspace 2>/dev/null || echo "Apri a mano: mobile/ios/App/App.xcworkspace"
+fi

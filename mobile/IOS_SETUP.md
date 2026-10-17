@@ -13,7 +13,7 @@ cd Ford-Ranger-Rifornimenti/mobile
 npm install
 node build-www.mjs
 npx cap sync ios
-npx cap open ios        # apre App.xcworkspace in Xcode
+open ios/App/App.xcworkspace   # apre il progetto in Xcode (alternativa: npx cap open ios)
 ```
 
 Se `cap sync` si lamenta dei pod: `cd ios/App && pod install`.
