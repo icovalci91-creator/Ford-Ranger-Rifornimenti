@@ -8,7 +8,7 @@
 <meta name="apple-mobile-web-app-title" content="RangerTrack"/>
 <meta name="theme-color" content="#0f0f0f"/>
 <meta http-equiv="Cache-Control" content="no-cache,no-store,must-revalidate"/>
-<title>RangerTrack v2026.11.20-2</title>
+<title>RangerTrack v2026.11.20-3</title>
 <link rel="apple-touch-icon" href="/apple-touch-icon.png"/>
 <link rel="preconnect" href="https://fonts.googleapis.com"/>
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@400;700;900&family=Barlow:wght@400;500&display=swap"/>
@@ -375,6 +375,13 @@ hr{border:none;border-top:1px solid var(--bd);margin:14px 0}
 </div>
 
 <!-- MODAL confirm -->
+<div class="mov" id="mo-ricalc" style="display:none" onclick="if(event.target===this)closeMo('mo-ricalc')">
+  <div class="mo">
+    <button class="mox" onclick="closeMo('mo-ricalc')">✕</button>
+    <div class="motitle">🔄 Ricalcola dalle ricariche</div>
+    <div id="ricalc-body"></div>
+  </div>
+</div>
 <div class="mov" id="mo-confirm" style="display:none">
   <div class="mo">
     <div class="motitle" id="mo-confirm-msg" style="margin-bottom:18px"></div>
@@ -406,7 +413,7 @@ hr{border:none;border-top:1px solid var(--bd);margin:14px 0}
 </div>
 
 <script>
-const APP_VER='2026.11.20-2';
+const APP_VER='2026.11.20-3';
 // ── STORAGE ──────────────────────────────────────────────────────────────────
 const LS={
   get:(k,d)=>{try{const v=localStorage.getItem(k);return v!==null?JSON.parse(v):d}catch{return d}},
@@ -574,6 +581,78 @@ function delRicOvunque(id){
   const b=bimArch.find(x=>(x.ricariche||[]).some(r=>r.id===id));if(b)delRicArch(b.key,id);
 }
 // coefficiente €/kWh specifico del bimestre (se impostato), altrimenti l'ultimo noto (stima)
+// ── RICALCOLO DEI CICLI GIÀ SALVATI DALLE RICARICHE ──
+// Periodo di un ciclo salvato: dal rifornimento precedente (escluso) alla sua data (inclusa); se al salvataggio
+// era stato scelto un inizio diverso vale quello, ma mai prima del rifornimento precedente.
+function ricNelPeriodo(tipo,da,a){
+  const dentro=r=>{const d=normData(r&&r.data);return d&&d>da&&d<=a};
+  return(tipo==='casa'?ricCasaL.filter(dentro):tutteLavoro().map(x=>x.r).filter(dentro)).sort((x,y)=>normData(x.data)>normData(y.data)?1:-1);
+}
+function periodoSalvato(h){
+  const a=normData(h.data);if(!a)return null;
+  const prec=hist.filter(x=>x.id!==h.id).map(x=>normData(x.data)).filter(d=>d&&d<a).sort().pop();
+  const scelto=h.periodo&&normData(h.periodo.da);
+  if(prec||scelto){const da=[prec,scelto].filter(Boolean).sort().pop();return{da,a}}
+  const t=new Date(a+'T12:00:00');t.setDate(t.getDate()-30);return{da:isoLocale(t),a,primo:true};
+}
+function propostaRicalcolo(h){
+  const P=periodoSalvato(h);if(!P)return null;
+  const lc=ricNelPeriodo('casa',P.da,P.a),ll=ricNelPeriodo('lavoro',P.da,P.a);
+  const k=bimKey(P.a),ci=coeffCasaInfo(k),cc=ci.v||n(h.costoKwhCasa),cl=coeffForBim(k)||n(h.costoKwhAz);
+  const oldC=n(h.kwhCasa),oldL=n(h.kwhLav),som=l=>r2(l.reduce((t,r)=>t+n(r.kwh),0));
+  // nessuna ricarica registrata nel periodo: non azzero un valore inserito a mano, lo lascio com'è
+  const newC=lc.length||!oldC?som(lc):oldC,newL=ll.length||!oldL?som(ll):oldL;
+  const costoEC=r2(newC*cc),rimb=r2(newL*cl);
+  const diff=(x,y)=>Math.abs(n(x)-n(y))>=.01;
+  return{id:h.id,h,P,lc,ll,newC,newL,oldC,oldL,cc,cl,casaStima:ci.src!=='bolletta',costoEC,rimb,
+    keepC:!lc.length&&oldC>0,keepL:!ll.length&&oldL>0,
+    cambia:diff(newC,oldC)||diff(newL,oldL)||diff(costoEC,h.costoEC)||diff(rimb,h.rimborso),sel:true};
+}
+let ricalc=[],ricalcNota='';
+function openRicalcolo(ids,nota){
+  const singolo=Array.isArray(ids)&&ids.length===1;
+  ricalc=hist.filter(h=>!ids||ids.includes(h.id)).map(propostaRicalcolo).filter(p=>p&&(p.cambia||singolo))
+    .sort((a,b)=>normData(a.h.data)>normData(b.h.data)?-1:1);
+  ricalcNota=nota||'';
+  if(!ricalc.length){showToast('✓ Tutti i cicli sono già allineati alle ricariche',true);return}
+  renderRicalcolo();openMo('mo-ricalc');
+}
+function renderRicalcolo(){
+  const el=document.getElementById('ricalc-body');if(!el)return;
+  const fr=(a,b,u,d=2)=>Math.abs(n(a)-n(b))<.01?`<span>${n(b).toFixed(d)}${u}</span>`:`<span style="color:var(--mu);text-decoration:line-through">${n(a).toFixed(d)}</span> → <strong>${n(b).toFixed(d)}${u}</strong>`;
+  const nSel=ricalc.filter(p=>p.sel&&p.cambia).length;
+  el.innerHTML=`${ricalcNota?`<div class="info" style="color:var(--o)">${es(ricalcNota)}</div>`:''}
+    <div class="info">Per ogni ciclo l'app somma le ricariche dal rifornimento precedente (escluso) alla data del ciclo (inclusa), divise tra casa e lavoro, con il €/kWh attuale del bimestre.</div>
+    ${ricalc.map((p,i)=>`<div style="background:var(--bg2);border:1px solid ${p.sel&&p.cambia?'var(--o)':'var(--bd)'};border-radius:8px;padding:10px 12px;margin-bottom:8px;font-size:12px;opacity:${p.cambia?1:.6}">
+      <label style="display:flex;align-items:center;gap:8px;cursor:pointer;margin-bottom:6px">
+        ${p.cambia?`<input type="checkbox" ${p.sel?'checked':''} onchange="ricalc[${i}].sel=this.checked;renderRicalcolo()" style="width:18px;height:18px;accent-color:#f97316"/>`:''}
+        <strong style="flex:1">⛽ ${fd(p.h.data)}${p.h.staz?' · '+es(p.h.staz):''}</strong>
+        <span style="font-size:10px;color:var(--mu)">dal ${fd(p.P.da)} al ${fd(p.P.a)}</span></label>
+      <div style="display:flex;justify-content:space-between;padding:2px 0"><span style="color:var(--b)">🏠 kWh casa (${p.lc.length})</span><span>${fr(p.oldC,p.newC,'')}</span></div>
+      ${p.keepC?'<div style="font-size:10px;color:var(--mu);text-align:right">nessuna ricarica di casa registrata nel periodo: valore attuale mantenuto</div>':''}
+      <div style="display:flex;justify-content:space-between;padding:2px 0"><span style="color:var(--g)">🏢 kWh lavoro (${p.ll.length})</span><span>${fr(p.oldL,p.newL,'')}</span></div>
+      ${p.keepL?'<div style="font-size:10px;color:var(--mu);text-align:right">nessuna ricarica al lavoro registrata nel periodo: valore attuale mantenuto</div>':''}
+      <div style="display:flex;justify-content:space-between;padding:2px 0;border-top:1px solid var(--bd);margin-top:3px"><span>Costo casa</span><span>€ ${fr(p.h.costoEC,p.costoEC,'')}</span></div>
+      <div style="display:flex;justify-content:space-between;padding:2px 0"><span>Rimborso lavoro</span><span>€ ${fr(p.h.rimborso,p.rimb,'')}</span></div>
+      ${p.cambia?'':'<div style="font-size:10px;color:var(--g);margin-top:4px">✓ già allineato alle ricariche</div>'}
+    </div>`).join('')}
+    <div class="brow" style="margin-top:6px">
+      ${nSel?`<button class="btn bo" onclick="applicaRicalcolo()">🔄 Aggiorna ${plur(nSel,'ciclo','cicli')}</button>`:''}
+      <button class="btn bgh" onclick="closeMo('mo-ricalc')">${nSel?'Annulla':'Chiudi'}</button></div>`;
+}
+function applicaRicalcolo(){
+  const da=ricalc.filter(p=>p.sel&&p.cambia);if(!da.length)return;
+  const snap=snapDati();
+  da.forEach(p=>{
+    const i=hist.findIndex(h=>h.id===p.id);if(i<0)return;
+    hist[i]={...hist[i],kwhCasa:p.newC,kwhLav:p.newL,costoKwhCasa:String(p.cc),costoKwhAz:String(p.cl),
+      costoEC:p.costoEC,rimborso:p.rimb,casaStima:p.casaStima,periodo:{da:p.P.da,a:p.P.a},ricalcolato:td()};
+  });
+  LS.set('rt_hist',hist);
+  logEv('ciclo',`Ricalcolati dalle ricariche: ${da.map(p=>fd(p.h.data)).join(', ')}`);
+  closeMo('mo-ricalc');render();
+  offriAnnulla(`🔄 ${plur(da.length,'ciclo aggiornato','cicli aggiornati')}`,snap);
+}
 function coeffForBim(key){const m=LS.get('rt_coeff_bim',{});return n(m[key])||n(costoKwh)}
 // da dove viene il coefficiente di un bimestre: bolletta del bimestre o stima dall'ultima nota
 function coeffInfo(key){
@@ -1892,7 +1971,9 @@ function rStoricoCicli(){
   </div>
   ${rStatistiche()}
   ${rGrafici()}
-  <button class="btn bo" style="margin-bottom:14px" onclick="openMo('mo-nrif')">➕ Aggiungi rifornimento mancante</button>`;
+  <div class="brow" style="margin-bottom:14px">
+    <button class="btn bo" onclick="openMo('mo-nrif')">➕ Aggiungi rifornimento mancante</button>
+    <button class="btn bgh" onclick="openRicalcolo()">🔄 Ricalcola cicli dalle ricariche</button></div>`;
   const riepilogo=h;h='';
 
   hist.forEach(hh=>{
@@ -1907,6 +1988,7 @@ function rStoricoCicli(){
       <div class="hidate">
         <span>${fd(hh.data)}${hh.staz?' · '+es(hh.staz):''}</span>
         <div class="brow" style="gap:6px">
+          <button class="btn bgh bsm" onclick="openRicalcolo([${hh.id}])" title="Ricalcola dalle ricariche">🔄</button>
           <button class="btn bgh bsm" onclick="toggleDet(${hh.id})" title="Dettaglio">📊</button>
           <button class="btn bgh bsm" onclick="toggleOpen(${hh.id})" title="Modifica">${isOpen?'▲':'✏️'}</button>
           <button class="delbtn" onclick="delHist(${hh.id})">✕</button>
@@ -2507,6 +2589,10 @@ function saveRicRev(){
   render();
   const dove=Object.keys(perBim).sort().map(k=>bimLbl(k)+(k===curBim()?'':' chiuso')).join(', ');
   showToast(`✓ Salvate ${nc} 🏠 · ${nl} 🏢`+(dove?' (lavoro in '+dove+')':''),true);
+  // ricariche di periodi già chiusi da un rifornimento salvato: propongo di aggiornare quei cicli
+  const date=da.map(r=>normData(r.data));
+  const toccati=hist.filter(h=>{const P=periodoSalvato(h);return P&&date.some(d=>d>P.da&&d<=P.a)}).map(h=>h.id);
+  if(toccati.length)setTimeout(()=>openRicalcolo(toccati,'Le ricariche appena caricate riguardano anche rifornimenti già salvati: controlla e aggiorna i cicli.'),900);
 }
 async function extractBoll(file,tipo){
   const isCasa=tipo==='casa';
