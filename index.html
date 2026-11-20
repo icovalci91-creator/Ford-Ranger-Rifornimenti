@@ -8,7 +8,7 @@
 <meta name="apple-mobile-web-app-title" content="RangerTrack"/>
 <meta name="theme-color" content="#0f0f0f"/>
 <meta http-equiv="Cache-Control" content="no-cache,no-store,must-revalidate"/>
-<title>RangerTrack v2026.10.17-2</title>
+<title>RangerTrack v2026.11.20-1</title>
 <link rel="apple-touch-icon" href="/apple-touch-icon.png"/>
 <link rel="preconnect" href="https://fonts.googleapis.com"/>
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@400;700;900&family=Barlow:wght@400;500&display=swap"/>
@@ -406,7 +406,7 @@ hr{border:none;border-top:1px solid var(--bd);margin:14px 0}
 </div>
 
 <script>
-const APP_VER='2026.10.17-2';
+const APP_VER='2026.11.20-1';
 // ── STORAGE ──────────────────────────────────────────────────────────────────
 const LS={
   get:(k,d)=>{try{const v=localStorage.getItem(k);return v!==null?JSON.parse(v):d}catch{return d}},
@@ -2209,10 +2209,28 @@ function rStatoCasa(){
 async function toB64(file){
   return new Promise((res,rej)=>{const r=new FileReader();r.onload=()=>res(r.result.split(',')[1]);r.onerror=rej;r.readAsDataURL(file)});
 }
+// Foto ridotta prima dell'invio all'AI: una foto di iPhone (3-8 MB) diventa ~300-600 KB,
+// ancora nitida per leggere testo e numeri. Upload e analisi molto più veloci. PDF invariati.
+const AI_LATO_MAX=2048;
+async function perAI(file){
+  if(!file||!/^image\//.test(file.type||'image/'))return{b64:await toB64(file),mime:file.type||'application/pdf'};
+  try{
+    const url=URL.createObjectURL(file);
+    const img=await new Promise((ok,ko)=>{const i=new Image();i.onload=()=>ok(i);i.onerror=ko;i.src=url});
+    const w=img.naturalWidth,h=img.naturalHeight,k=Math.min(1,AI_LATO_MAX/Math.max(w,h));
+    if(k===1&&file.size<1.5e6){URL.revokeObjectURL(url);return{b64:await toB64(file),mime:file.type||'image/jpeg'}}
+    const c=document.createElement('canvas');c.width=Math.round(w*k);c.height=Math.round(h*k);
+    const g=c.getContext('2d');g.fillStyle='#fff';g.fillRect(0,0,c.width,c.height);g.drawImage(img,0,0,c.width,c.height);
+    URL.revokeObjectURL(url);
+    const d=c.toDataURL('image/jpeg',.85);
+    return{b64:d.split(',')[1],mime:'image/jpeg'};
+  }catch(e){return{b64:await toB64(file),mime:file.type||'image/jpeg'}} // formato non decodificabile: invio l'originale
+}
 // normalizza un singolo File o una FileList in un array di File
 function toList(f){return Array.from(f&&f.length!==undefined&&!f.name?f:[f])}
 // Elenco modelli Gemini da provare, in ordine. Letto da Google (ListModels) e tenuto in memoria 3 giorni.
 const GEM_FALLBACK=['gemini-flash-latest','gemini-3.8-flash','gemini-2.5-flash'];
+let AI_TIMEOUT_MS=90000; // oltre questo tempo passo al modello successivo
 function versioneModello(n){const m=n.match(/gemini-(\d+(?:\.\d+)?)/);return m?parseFloat(m[1]):0}
 async function geminiModels(){
   const c=LS.get('rt_gem_models',null);
@@ -2238,26 +2256,36 @@ async function callGemini(file,prompt,maxTok=400){
   const files=Array.isArray(file)?file:(file&&file.length!==undefined&&!file.name?Array.from(file):[file]);
   const imgParts=[];
   for(const f of files){
-    const b64=await toB64(f);
-    imgParts.push({inline_data:{mime_type:f.type||'image/jpeg',data:b64}});
+    const x=await perAI(f);
+    imgParts.push({inline_data:{mime_type:x.mime,data:x.b64}});
   }
   // Modelli: scelti in automatico tra quelli che Google offre oggi con questa chiave
   // (Google ritira periodicamente i modelli: un nome fisso prima o poi smette di funzionare)
-  const models=await geminiModels();
+  // prima il modello che ha funzionato l'ultima volta (il più rapido da raggiungere)
+  const elenco=await geminiModels(),okPrima=LS.get('rt_gem_ok','');
+  const models=okPrima&&elenco.includes(okPrima)?[okPrima,...elenco.filter(m=>m!==okPrima)]:elenco;
   let lastErr=new Error('AI non disponibile');
   for(const m of models){
-    // i 2.5 col "ragionamento" spento rispondono subito; i modelli più nuovi ragionano sempre,
-    // quindi serve margine di token perché il ragionamento non mangi tutta la risposta
+    // Leggere una foto non richiede "ragionamento": lo spengo (2.5) o lo tengo al minimo (modelli più nuovi),
+    // altrimenti la risposta può richiedere minuti. Margine di token per i modelli che ragionano comunque.
     const gen={maxOutputTokens:m.includes('2.5')?maxTok:Math.max(maxTok,8192)};
-    if(m.includes('2.5'))gen.thinkingConfig={thinkingBudget:0};
+    gen.thinkingConfig=m.includes('2.5')?{thinkingBudget:0}:{thinkingLevel:'low'};
     let data;
+    const chiama=async g=>{
+      const ctl=new AbortController(),t=setTimeout(()=>ctl.abort(),AI_TIMEOUT_MS);
+      try{
+        const res=await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${m}:generateContent?key=${geminiKey}`,{
+          method:'POST',headers:{'Content-Type':'application/json'},signal:ctl.signal,
+          body:JSON.stringify({contents:[{parts:[...imgParts,{text:prompt}]}],generationConfig:g})
+        });
+        return await res.json();
+      }finally{clearTimeout(t)}
+    };
     try{
-      const res=await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${m}:generateContent?key=${geminiKey}`,{
-        method:'POST',headers:{'Content-Type':'application/json'},
-        body:JSON.stringify({contents:[{parts:[...imgParts,{text:prompt}]}],generationConfig:gen})
-      });
-      data=await res.json();
-    }catch(e){lastErr=new Error('Rete non disponibile');continue}
+      data=await chiama(gen);
+      // modello che non accetta l'impostazione del ragionamento: riprovo lo stesso modello senza
+      if(data.error&&data.error.code===400&&/think/i.test(data.error.message||'')){const g={...gen};delete g.thinkingConfig;data=await chiama(g)}
+    }catch(e){lastErr=new Error(e&&e.name==='AbortError'?'Tempo scaduto ('+Math.round(AI_TIMEOUT_MS/1000)+' s) con '+m:'Rete non disponibile');continue}
     if(data.error){
       const c=data.error.code;
       lastErr=new Error(data.error.message+' ('+c+')');
@@ -2272,6 +2300,7 @@ async function callGemini(file,prompt,maxTok=400){
     if(!raw){lastErr=new Error('Risposta vuota ('+(cand?.finishReason||'?')+')');continue}
     // estrai solo il blocco JSON dalla risposta (Gemini a volte aggiunge testo)
     const match=raw.match(/\{[\s\S]*\}/);
+    if(okPrima!==m)LS.set('rt_gem_ok',m);
     return match?match[0]:raw.replace(/```json|```/g,'');
   }
   throw lastErr;
